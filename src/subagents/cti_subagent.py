@@ -49,7 +49,7 @@ class CtiAgentRunner:
     remaining_token_count: int
     num_turns: int
     query: str
-    findings_summary: str
+    summary: str
     jina_api_key: str
     jina_timeout: int | None
     agent: Agent
@@ -152,7 +152,7 @@ Use the word count limit as a guideline on how concise you must be.
             jina_data = response.json()
             # Jina JSON structure usually has content in 'data', 'content', or 'markdown'
             print(f"[DEBUG] Jina data:\n{json.dumps(jina_data, indent=2)}")
-            raw_webpage_content = jina_data.get("content", jina_data.get("markdown", ""))
+            raw_webpage_content = jina_data.get("content", "")
             
             # --- START: RAG-Inspired Semantic Chunking ---
             incoming_tokens = count_tokens(raw_webpage_content)
@@ -262,7 +262,7 @@ Query: {self.query}
 
 Summary of findings so far:
 
-{self.findings_summary}
+{self.summary}
 
 ---
 
