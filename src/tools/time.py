@@ -12,3 +12,6 @@ def get_current_datetime():
     """
     now = datetime.now(timezone.utc)
     return now.strftime("%A, %b %d, %Y | %H:%M UTC")
+
+def append_current_datetime(prompt: str):
+    return f"{prompt}\n\nCurrent Datetime: {get_current_datetime()}"

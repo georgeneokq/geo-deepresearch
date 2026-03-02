@@ -21,6 +21,9 @@ from agno.models.openai import OpenAILike
 from agno.run.agent import RunOutput
 from pydantic import BaseModel
 from subagents.cti_subagent import CtiAgentRunner
+from util.logging import setup_logging
+
+setup_logging()
 
 class DecomposerOutputItem(BaseModel):
     expertise: str
@@ -97,16 +100,18 @@ def preload_tokenizer():
 
 async def main():
     preload_tokenizer()
-    query = "What are the IOCs of APT42?"
-    decomposer_agent = get_decomposer_agent()
-    decomposer_result: RunOutput = await decomposer_agent.arun(query)  # type: ignore
-    assert isinstance(decomposer_result.content, DecomposerOutput)
-    subqueries = decomposer_result.content.subqueries
+    # query = "What are the IOCs of APT42?"
+    # decomposer_agent = get_decomposer_agent()
+    # decomposer_result: RunOutput = await decomposer_agent.arun(query)  # type: ignore
+    # assert isinstance(decomposer_result.content, DecomposerOutput)
+    # subqueries = decomposer_result.content.subqueries
 
     # Spawn the agents here
-    for subquery in subqueries:
-        spawn_research_subagent(expertise=subquery.expertise, query=subquery.query)
+    # for subquery in subqueries:
+        # spawn_research_subagent(expertise=subquery.expertise, query=subquery.query)
 
+    # TODO: Un-hardcode
+    spawn_research_subagent(expertise="cti", query="IOCs of APT42 including domains, IP addresses, and file hashes")
     # Wait for subagents to run finish
     await asyncio.gather(*running_agents)
 

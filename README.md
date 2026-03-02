@@ -22,3 +22,7 @@ The folder name `tokenizer` can be customized in .env file if you wish to use a 
 cd src
 uv run --env-file ../.env main.py
 ```
+
+## Challenges to tackle
+
+- Source reliability evaluation
