@@ -8,9 +8,9 @@ from openai import AsyncOpenAI
 from util.tokens import count_tokens
 from util.tools import function_to_schema
 from tools.time import append_current_datetime
+from config import config
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
 
 MODEL_MAX_TOKENS = int(os.environ.get("DEEP_RESEARCH_MODEL_MAX_TOKENS", 100000))
 
@@ -24,7 +24,7 @@ Prioritize sources:
 WEB_SEARCH_INSTRUCTIONS = f"""
 Given web search tool, perform web search to find information on the given research topic.
 Keep your search queries concise.
-Search specifically from prioritized sources using the site: prefix if they are not referenced yet.
+Search specifically from prioritized sources using the `site:` prefix if they are not referenced yet.
 The user will provide a list of used queries, avoid repeated searches.
 
 {PRIORITIZE_SOURCES_SUFFIX}
@@ -40,7 +40,7 @@ The user will provide a list of existing references, avoid browsing those websit
 SUMMARY_AGENT_INSTRUCTIONS = """
 You are an expert in CTI, Cyber Threat Intelligence deep research.
 You will be given a query related to CTI, along with a summary of the findings so far.
-Given the web search and webpage browsing tool results, update the current summary with information from the previous tool results.
+Given the web search and webpage browsing tool results, update the current citation list and summary using information from the previous tool results.
 You should only extract out information relevant to the user's query for updating the summary.
 Deduplicate information as necessary.
 All statements in your answer must be linked to a citation.
@@ -71,13 +71,14 @@ class CtiAgentRunner:
         self.model = os.environ.get("DEEP_RESEARCH_MODEL", "z-ai/glm-4.7-flash")
         
         self.source_list = []
+        self.failed_browses = []
         self.used_web_search_queries = []
         self.num_turns = 0
         self.research_topic = ""
         self.summary = "No research done yet"
         
         self.jina_api_key = os.environ.get("JINA_API_KEY", "")
-        self.jina_timeout = 30.0
+        self.jina_timeout = 60.0
         self.remaining_token_count = int(os.environ.get("DEEP_RESEARCH_MODEL_MAX_TOKENS", 100000))
 
         # Register tools for introspection
@@ -99,7 +100,7 @@ class CtiAgentRunner:
         user: str, 
         tools: Optional[List[Callable]] = None, 
         force_tool: Optional[Callable] = None, 
-        max_tokens: Optional[int] = None, 
+        max_tokens: Optional[int] = None,
         temperature: float = 0.6
     ) -> Any:
         """
@@ -283,7 +284,7 @@ class CtiAgentRunner:
                 return "[SYSTEM NOTICE] You have already browsed this webpage."
 
             full_url = f"https://r.jina.ai/{url}"
-            print(f"[DEBUG] Browsing {full_url}")
+            logger.debug(f"Browsing {url}...")
             try:
                 async with httpx.AsyncClient() as client:
                     response = await client.get(full_url, headers=self._get_jina_headers(), timeout=self.jina_timeout)
@@ -306,6 +307,7 @@ class CtiAgentRunner:
                         f"[DEBUG] Megapage detected ({incoming_tokens} tokens). Processing in chunks..."
                     )
                     # We use overlap so the model doesn't lose context between chunks
+                    # TODO: Semantic chunker sometimes only returns 1 chunk, improve the formula / megapage condition
                     chunks = self._semantic_chunker(
                         raw_webpage_content, max_tokens=7000, overlap=500
                     )
@@ -346,16 +348,21 @@ class CtiAgentRunner:
 
                 self.source_list.append(url)
                 logger.debug(f"After adding to source list:")
-                logger.debug(f"Sources used: {'\n'.join([f'- {item}' for item in self.source_list])}")
+                logger.debug(f"{'\n'.join([f'- {item}' for item in self.source_list])}")
                 summaries[url] = summarized
 
             except Exception as e:
                 import traceback
                 traceback.print_exc()
+                self.failed_browses.append(url)
                 return f"Error reading URL: {str(e)}"
         
-        # Browse in parallel
-        asyncio.gather(*[process_url(url) for url in urls])
+        # Process in parallel or sequence depending on the configuration
+        if config.is_parallel_mode_enabled():
+            await asyncio.gather(*[process_url(url) for url in urls])
+        else:
+            for url in urls:
+                await process_url(url)
 
         return summaries
 
@@ -380,8 +387,10 @@ Use the word count limit as a guideline on how concise you must be.
     async def run(self, research_topic: str):
         self.research_topic = research_topic
         
-        # TODO: Better end condition
+        # TODO: Better end condition, and differentiate the cause of stopping the research for logging
         while len(self.source_list) < 5 or count_tokens(self.summary) > int(MODEL_MAX_TOKENS / 5 * 4):
+            self.num_turns += 1
+
             # Search
             queries_formatted = '\n'.join([f"- {q}" for q in self.used_web_search_queries]) or "None"
             search_prompt = f"Research topic: {self.research_topic}\n\nUsed search queries:\n{queries_formatted}"
@@ -394,7 +403,6 @@ Use the word count limit as a guideline on how concise you must be.
             logger.debug(f"Web search results:\n{search_results}")
 
             # Browse webpages
-            # TODO: Update webpage browse to allow multiple browsing
             browse_prompt = f"Research topic: {self.research_topic}\n\nExisting references:\n{self.source_list}\n\nWeb search results:\n{search_results}"
             browse_msg = await self._call_llm(WEBPAGE_BROWSE_INSTRUCTIONS, browse_prompt, tools=[self.webpage_browse], force_tool=self.webpage_browse)
             
@@ -402,16 +410,14 @@ Use the word count limit as a guideline on how concise you must be.
             # print(browse_msg.tool_calls)
             tool_call = browse_msg.tool_calls[0]
             browse_arguments = json.loads(tool_call.function.arguments)
-            print(browse_arguments)
-            return
             browsed_contents = await self.webpage_browse(**browse_arguments)
 
             # Summary update
-            summary_prompt = f"Research topic: {self.research_topic}\n\nReferences: {'\n'.join([f'- {item}' for item in self.source_list])}\n\nCurrent summary: {self.summary}\n\nNewly browsed contents: {json.dumps(browsed_contents)}"
+            summary_prompt = f"Research topic: {self.research_topic}\n\nCurrent References: {'\n'.join([f'{index + 1}. {item}' for index, item in enumerate(self.source_list)])}\n\nCurrent summary: {self.summary}\n\nNewly browsed contents: {json.dumps(browsed_contents)}"
             msg = await self._call_llm(SUMMARY_AGENT_INSTRUCTIONS, summary_prompt)
+            logger.debug(f"Turn {self.num_turns + 1} Summary Prompt:")
             self.summary = msg.content or self.summary
             
-            self.num_turns += 1
             logger.info(f"Turn {self.num_turns} summary update complete.")
 
             logger.info(f"Summary: {self.summary}")
@@ -419,5 +425,7 @@ Use the word count limit as a guideline on how concise you must be.
             # Source list
             logger.debug(f"Sources used: {'\n'.join([f'- {item}' for item in self.source_list])}")
 
+        # Form the final summary
         print("\n--- FINAL SUMMARY ---\n")
         print(self.summary)
+        self.summary = f"{self.summary}\n\n**Errors Browsing URLs**\n\n{'\n'.join([f'{index + 1}. {item}' for index, item in enumerate(self.source_list)])}"
