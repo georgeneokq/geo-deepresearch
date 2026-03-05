@@ -1,9 +1,8 @@
-import json
-import logging
 import inspect
 from typing import Dict, Any, Callable, get_type_hints, get_origin, get_args, Union
+from util.logging import get_logger
 
-logger = logging.getLogger()
+logger = get_logger()
 
 def function_to_schema(func: Callable) -> Dict[str, Any]:
     sig = inspect.signature(func)

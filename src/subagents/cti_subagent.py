@@ -1,30 +1,33 @@
 import asyncio
+import time
 import json
 import logging
 import os
 import httpx
+from pathlib import Path
 from typing import Optional, Any, Dict, List, Callable
 from openai import AsyncOpenAI
 from util.tokens import count_tokens
 from util.tools import function_to_schema
 from tools.time import append_current_datetime
 from config import config
+from util.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger()
 
 MODEL_MAX_TOKENS = int(os.environ.get("DEEP_RESEARCH_MODEL_MAX_TOKENS", 100000))
 
 PRIORITIZE_SOURCES_SUFFIX = """
 ---
 
-Prioritize sources:
-- Google cloud: https://cloud.google.com
+Prioritize these sources for APT information:
+- Information on APTs: https://cloud.google.com
 """
 
 WEB_SEARCH_INSTRUCTIONS = f"""
 Given web search tool, perform web search to find information on the given research topic.
-Keep your search queries concise.
-Search specifically from prioritized sources using the `site:` prefix if they are not referenced yet.
+As it uses Google search under the hood, you should use advanced operators like "site:", "intitle", etc. where necessary.
+Search specifically from prioritized sources using the `site:` prefix if they are not referenced yet (e.g. site:cloud.google.com APT42 IOCs).
 The user will provide a list of used queries, avoid repeated searches.
 
 {PRIORITIZE_SOURCES_SUFFIX}
@@ -32,7 +35,7 @@ The user will provide a list of used queries, avoid repeated searches.
 
 WEBPAGE_BROWSE_INSTRUCTIONS = f"""
 Given a research topic and web search results from previous agent, rank the top 3 webpages with relevance to the research topic, then browse them.
-The user will provide a list of existing references, avoid browsing those websites.
+The user may provide a list of existing citations, avoid browsing those websites.
 
 {PRIORITIZE_SOURCES_SUFFIX}
 """.strip()
@@ -40,10 +43,11 @@ The user will provide a list of existing references, avoid browsing those websit
 SUMMARY_AGENT_INSTRUCTIONS = """
 You are an expert in CTI, Cyber Threat Intelligence deep research.
 You will be given a query related to CTI, along with a summary of the findings so far.
-Given the web search and webpage browsing tool results, update the current citation list and summary using information from the previous tool results.
+Given the web search and webpage browsing tool results, add to the existing citation list and summary using information from the previous tool results.
 You should only extract out information relevant to the user's query for updating the summary.
 Deduplicate information as necessary.
 All statements in your answer must be linked to a citation.
+Ensure to keep all previously linked citations and references list.
 
 ---
 
@@ -137,7 +141,14 @@ class CtiAgentRunner:
             }
         
         response = await self.client.chat.completions.create(**kwargs)
-        return response.choices[0].message
+
+        message = response.choices[0].message
+
+        # Logging
+        reasoning = getattr(message, 'reasoning_content', None) or getattr(message, 'reasoning', None)
+        logger.debug(f"LLM call complete.{f'\nReasoning:\n{reasoning}\n\n' if reasoning else '\n\n'}Content:\n{message.content}")
+
+        return message
 
     async def _make_serper_request(self, endpoint: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -307,23 +318,24 @@ class CtiAgentRunner:
                         f"[DEBUG] Megapage detected ({incoming_tokens} tokens). Processing in chunks..."
                     )
                     # We use overlap so the model doesn't lose context between chunks
-                    # TODO: Semantic chunker sometimes only returns 1 chunk, improve the formula / megapage condition
                     chunks = self._semantic_chunker(
                         raw_webpage_content, max_tokens=7000, overlap=500
                     )
 
-                    intermediate_summaries = []
-                    for i, chunk in enumerate(chunks):
-                        print(f"[DEBUG] Processing chunk {i+1}/{len(chunks)}...")
-                        # Each chunk gets a fixed budget for its mini-summary
-                        chunk_summary = await self.summarize_webpage(chunk, 1000)
-                        logger.debug(f"Summary for chunk {i+1}: {chunk_summary}")
-                        intermediate_summaries.append(chunk_summary)
+                    # Semantic chunker sometimes only returns 1 chunk, in this case don't need to do aggregation of summaries
+                    if len(chunks) > 1:
+                        intermediate_summaries = []
+                        for i, chunk in enumerate(chunks):
+                            print(f"[DEBUG] Processing chunk {i+1}/{len(chunks)}...")
+                            # Each chunk gets a fixed budget for its mini-summary
+                            chunk_summary = await self.summarize_webpage(chunk, 1000)
+                            logger.debug(f"Summary for chunk {i+1}: {chunk_summary}")
+                            intermediate_summaries.append(chunk_summary)
 
-                    # Consolidate: This becomes the new input for the final update
-                    raw_webpage_content = "\n\n--- NEXT SECTION ---\n\n".join(
-                        intermediate_summaries
-                    )
+                        # Consolidate: This becomes the new input for the final update
+                        raw_webpage_content = "\n\n--- NEXT SECTION ---\n\n".join(
+                            intermediate_summaries
+                        )
                 # --- END: Chunking ---
 
                 # Budgeting Logic
@@ -341,7 +353,7 @@ class CtiAgentRunner:
                     summarize_max_tokens = max(available_space, MIN_SUMMARY_ROOM)
 
                 logger.debug(f"Budgeting {summarize_max_tokens} tokens for this intermediate summary.")
-                logger.debug(f"Passing in for intermediate summarization: {raw_webpage_content}")
+                logger.debug(f"Passing in for final summarization: {raw_webpage_content}")
                 summarized = await self.summarize_webpage(
                     raw_webpage_content, summarize_max_tokens
                 )
@@ -366,12 +378,13 @@ class CtiAgentRunner:
 
         return summaries
 
-    async def summarize_webpage(self, contents: str, max_tokens: int) -> str:
+    async def summarize_webpage(self, contents: str, recommended_max_tokens: int) -> str:
         # Max tokens is used for recommended word limit calculation, not a hard cap
-        recommended_word_limit = self._token_count_to_word_count(max_tokens)
+        recommended_word_limit = self._token_count_to_word_count(recommended_max_tokens)
 
         summarizer_instructions = f"""
 Given the following research topic and webpage contents, extract out only the information relevant to the query.
+The webpage contents may be truncated. If it seems truncated, summarize while noting a possible lack of context due truncation.
 Be concise to save tokens, but summarize in a way that the agent receiving your summary can understand it without extra context.
 The data might be chunked; if it is, ensure to deduplicate information, as there is some overlap to avoid loss of context
 Estimated word count limit: {recommended_word_limit}.
@@ -384,11 +397,26 @@ Use the word count limit as a guideline on how concise you must be.
             logger.error(res)
         return res.content or ""
 
+    def _generate_report_output_path(self, file_name_base: Optional[str] = None, ext: str = "md") -> Path:
+        save_dir = Path('./outputs').absolute()
+        filename = f"{file_name_base if file_name_base else int(time.time())}.{ext}"
+        return save_dir / filename
+
+    def _save_report(self, file_contents: str, file_name_base: Optional[str] = None, ext: str = "md") -> Path:
+        # Ensure directory exists
+        path = self._generate_report_output_path(file_name_base=file_name_base, ext=ext)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(path, 'w') as f:
+            f.write(file_contents)
+        
+        return path
+
     async def run(self, research_topic: str):
         self.research_topic = research_topic
         
         # TODO: Better end condition, and differentiate the cause of stopping the research for logging
-        while len(self.source_list) < 5 or count_tokens(self.summary) > int(MODEL_MAX_TOKENS / 5 * 4):
+        while (len(self.source_list) < 5 or count_tokens(self.summary) > int(MODEL_MAX_TOKENS / 5 * 4)):
             self.num_turns += 1
 
             # Search
@@ -405,6 +433,7 @@ Use the word count limit as a guideline on how concise you must be.
             # Browse webpages
             browse_prompt = f"Research topic: {self.research_topic}\n\nExisting references:\n{self.source_list}\n\nWeb search results:\n{search_results}"
             browse_msg = await self._call_llm(WEBPAGE_BROWSE_INSTRUCTIONS, browse_prompt, tools=[self.webpage_browse], force_tool=self.webpage_browse)
+            logger.debug(browse_prompt)
             
             # print("[DEBUG]: Tool calls for browse:")
             # print(browse_msg.tool_calls)
@@ -413,9 +442,9 @@ Use the word count limit as a guideline on how concise you must be.
             browsed_contents = await self.webpage_browse(**browse_arguments)
 
             # Summary update
-            summary_prompt = f"Research topic: {self.research_topic}\n\nCurrent References: {'\n'.join([f'{index + 1}. {item}' for index, item in enumerate(self.source_list)])}\n\nCurrent summary: {self.summary}\n\nNewly browsed contents: {json.dumps(browsed_contents)}"
+            summary_prompt = f"Research topic: {self.research_topic}\n\nCurrent summary: {self.summary}\n\nNewly browsed contents: {json.dumps(browsed_contents)}"
             msg = await self._call_llm(SUMMARY_AGENT_INSTRUCTIONS, summary_prompt)
-            logger.debug(f"Turn {self.num_turns + 1} Summary Prompt:")
+            logger.debug(f"Turn {self.num_turns} Summary Prompt:")
             self.summary = msg.content or self.summary
             
             logger.info(f"Turn {self.num_turns} summary update complete.")
@@ -426,6 +455,12 @@ Use the word count limit as a guideline on how concise you must be.
             logger.debug(f"Sources used: {'\n'.join([f'- {item}' for item in self.source_list])}")
 
         # Form the final summary
-        print("\n--- FINAL SUMMARY ---\n")
-        print(self.summary)
-        self.summary = f"{self.summary}\n\n**Errors Browsing URLs**\n\n{'\n'.join([f'{index + 1}. {item}' for index, item in enumerate(self.source_list)])}"
+        errors_section = ""
+        if len(self.failed_browses):
+            errors_section = f"\n\n**Errors Browsing URLs**\n\n{'\n'.join([f'{index + 1}. {item}' for index, item in enumerate(self.failed_browses)])}"
+        
+        self.summary = f"{self.summary}{errors_section if errors_section else ''}"
+
+        # Save to file
+        path = self._save_report(self.summary)
+        logger.info(f"Saved to: {path.absolute()}")

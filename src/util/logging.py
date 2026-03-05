@@ -1,18 +1,30 @@
 import os
 import logging
 
-def setup_logging():
-    # Get the string and ensure it's uppercase
-    level_str = os.getenv("LOGGING_LEVEL", "INFO").upper()
-    
-    # Fetch the valid mapping
-    allowed_levels = logging.getLevelNamesMapping()
+default_logger_name = "geo-deepresearch"
+default_logger = logging.getLogger(default_logger_name)
 
-    # Validate and fallback if the user provided a typo
+def setup_logging(app_name=default_logger_name):
+    # Get the desired level for specified app
+    level_str = os.getenv("LOGGING_LEVEL", "INFO").upper()
+    allowed_levels = logging.getLevelNamesMapping()
+    
     if level_str not in allowed_levels:
         level_str = "INFO"
-
+    
     logging.basicConfig(
-        level=level_str, 
+        level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
+
+    # Explicitly set your application's logger level
+    # This ensures only loggers starting with 'app_name' use the env var level
+    app_logger = logging.getLogger(app_name)
+    app_logger.setLevel(level_str)
+    
+    return app_logger
+
+def get_logger(logger_name=default_logger_name):
+    if logger_name == default_logger_name:
+        return default_logger
+    return logging.getLogger(logger_name)

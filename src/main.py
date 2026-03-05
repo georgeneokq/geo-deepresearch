@@ -18,7 +18,6 @@ import os
 import asyncio
 from agno.agent import Agent
 from agno.models.openai import OpenAILike
-from agno.run.agent import RunOutput
 from pydantic import BaseModel
 from subagents.cti_subagent import CtiAgentRunner
 from util.logging import setup_logging
