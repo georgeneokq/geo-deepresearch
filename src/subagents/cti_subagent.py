@@ -464,3 +464,5 @@ Use the word count limit as a guideline on how concise you must be.
         # Save to file
         path = self._save_report(self.summary)
         logger.info(f"Saved to: {path.absolute()}")
+
+        return self.summary

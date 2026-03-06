@@ -19,14 +19,28 @@ import asyncio
 from agno.agent import Agent
 from agno.models.openai import OpenAILike
 from pydantic import BaseModel
-from subagents.cti_subagent import CtiAgentRunner
+from fastapi import FastAPI
+from pydantic import BaseModel
+from contextlib import asynccontextmanager
 from util.logging import setup_logging
+from subagents.cti_subagent import CtiAgentRunner
 
 setup_logging()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    preload_tokenizer()
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
+
 
 class DecomposerOutputItem(BaseModel):
     expertise: str
     query: str
+
 
 class DecomposerOutput(BaseModel):
     subqueries: list[DecomposerOutputItem]
@@ -57,12 +71,11 @@ Output format is a JSON object in the following format:
 """.strip()
 
 # Coroutines to be awaited later using asyncio.gather
-running_agents = []
 
 def spawn_research_subagent(expertise: str, query: str):
     if expertise == "cti":
         agent_runner = CtiAgentRunner()
-        running_agents.append(agent_runner.run(query))
+        return agent_runner.run(query)
     elif expertise == "finance":
         # TODO
         pass
@@ -79,43 +92,45 @@ def get_decomposer_agent():
         id=os.environ.get("DEEP_RESEARCH_MODEL", "z-ai/glm-4.7-flash"),
         base_url=os.environ.get("DEEP_RESEARCH_BASE_URL"),
         api_key=os.environ.get("DEEP_RESEARCH_API_KEY"),
-        temperature=0.2
+        temperature=0.2,
     )
     decomposer_agent = Agent(
         name="Decomposer",
         model=decomposer_model,
         instructions=decomposer_instructions,
-        output_schema=DecomposerOutput
+        output_schema=DecomposerOutput,
     )
     return decomposer_agent
 
 
 def preload_tokenizer():
     from tokenizer_manager import get_tokenizer
+
     tokenizer_dir = os.environ.get("TOKENIZER_DIR", "../tokenizer")
     print(f"Preloading tokenizer from {tokenizer_dir}...")
     get_tokenizer(os.environ.get("TOKENIZER_DIR", "../tokenizer"))
 
 
-async def main():
-    preload_tokenizer()
-    # query = "What are the IOCs of APT42?"
-    # decomposer_agent = get_decomposer_agent()
-    # decomposer_result: RunOutput = await decomposer_agent.arun(query)  # type: ignore
-    # assert isinstance(decomposer_result.content, DecomposerOutput)
-    # subqueries = decomposer_result.content.subqueries
+class ResearchRequestBody(BaseModel):
+    query: str
+
+
+@app.post("/research")
+async def research(body: ResearchRequestBody):
+    query = body.query
+
+    running_agents = []
+
+    decomposer_agent = get_decomposer_agent()
+    decomposer_result: RunOutput = await decomposer_agent.arun(query)  # type: ignore
+    assert isinstance(decomposer_result.content, DecomposerOutput)
+    subqueries = decomposer_result.content.subqueries
 
     # Spawn the agents here
-    # for subquery in subqueries:
-        # spawn_research_subagent(expertise=subquery.expertise, query=subquery.query)
+    for subquery in subqueries:
+        running_agents.append(spawn_research_subagent(expertise=subquery.expertise, query=subquery.query))
 
-    # TODO: Un-hardcode
-    spawn_research_subagent(expertise="cti", query="IOCs of APT42 including domains, IP addresses, and file hashes")
     # Wait for subagents to run finish
-    await asyncio.gather(*running_agents)
+    summaries = await asyncio.gather(*running_agents)
 
     # TODO: Agent to analyze all answers from subagents, combine contents and citation list with deduplication
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
