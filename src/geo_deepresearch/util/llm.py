@@ -15,7 +15,7 @@ logger = get_logger()
 # Globally shared client to prevent redundant multi initialization
 openai_client = LangfuseAsyncOpenAI(
     api_key=os.environ.get("DEEP_RESEARCH_API_KEY"),
-    base_url=os.environ.get("DEEP_RESEARCH_BASE_URL")
+    base_url=os.environ.get("DEEP_RESEARCH_BASE_URL"),
 )
 openai_default_model = os.environ.get("DEEP_RESEARCH_MODEL", "z-ai/glm-4.7-flash")
 
@@ -23,13 +23,14 @@ openai_default_model = os.environ.get("DEEP_RESEARCH_MODEL", "z-ai/glm-4.7-flash
 # This allows the IDE to know that the return type matches the input schema
 T = TypeVar("T", bound=BaseModel)
 
+
 async def call_llm(
     client: AsyncOpenAI,
     model: str,
-    system: str, 
-    user: str, 
-    tools: Optional[List[Callable]] = None, 
-    force_tool: Optional[Callable] = None, 
+    system: str,
+    user: str,
+    tools: Optional[List[Callable]] = None,
+    force_tool: Optional[Callable] = None,
     output_schema: Optional[type[T]] = None,
     max_tokens: Optional[int] = None,
     temperature: float = 0.6,
@@ -46,35 +47,29 @@ async def call_llm(
     """
     messages = [
         {"role": "system", "content": append_current_datetime(system)},
-        {"role": "user", "content": user}
+        {"role": "user", "content": user},
     ]
-    
-    kwargs = {
-        "model": model,
-        "messages": messages,
-        "temperature": temperature
-    }
-    
-    if max_tokens: 
+
+    kwargs = {"model": model, "messages": messages, "temperature": temperature}
+
+    if max_tokens:
         kwargs["max_tokens"] = max_tokens
-        
+
     # Handle on-the-fly tool introspection
     if tools:
         kwargs["tools"] = [function_to_schema(f) for f in tools]
-        
+
     # Handle tool forcing
     if force_tool:
         # If force_tool is passed but not in tools list, add it automatically
         if not tools or force_tool not in tools:
             kwargs.setdefault("tools", []).append(function_to_schema(force_tool))
-        
+
         kwargs["tool_choice"] = {
-            "type": "function", 
-            "function": {"name": force_tool.__name__}
+            "type": "function",
+            "function": {"name": force_tool.__name__},
         }
-    
-    
-    
+
     response = await client.chat.completions.create(**kwargs)
 
     message = response.choices[0].message
@@ -86,8 +81,12 @@ async def call_llm(
         message.parsed = output_schema.model_validate(parsed_data)
 
     # Logging
-    reasoning = getattr(message, 'reasoning_content', None) or getattr(message, 'reasoning', None)
-    logger.debug(f"LLM call complete.{f'\nReasoning:\n{reasoning}\n\n' if reasoning else '\n\n'}Content:\n{message.content}")
+    reasoning = getattr(message, "reasoning_content", None) or getattr(
+        message, "reasoning", None
+    )
+    logger.debug(
+        f"LLM call complete.{f'\nReasoning:\n{reasoning}\n\n' if reasoning else '\n\n'}Content:\n{message.content}"
+    )
     logger.debug("Full LLM call message:")
     logger.debug(message)
 

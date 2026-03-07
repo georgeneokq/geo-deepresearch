@@ -38,4 +38,4 @@ COPY tests/ ./tests
 
 WORKDIR /app/src
 
-ENTRYPOINT ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+ENTRYPOINT ["uvicorn", "geo_deepresearch.main:app", "--host", "0.0.0.0", "--port", "8000"]

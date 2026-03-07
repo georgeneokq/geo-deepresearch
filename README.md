@@ -47,4 +47,5 @@ docker compose exec -w /app api-server uv run pytest tests/*
 
 ## Challenges to tackle
 
-- Source reliability evaluation
+- When multiple subagents of the same type are spawned, the current implementation has a high chance of causing repeated browsing of the same webpage.
+- Right now, the child class doesn't do much other than provide sources to prioritize. Looking to find more use of this structure in the future.
