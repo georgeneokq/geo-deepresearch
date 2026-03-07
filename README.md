@@ -36,6 +36,15 @@ docker compose build
 docker compose up -d
 ```
 
+## Testing
+
+Tests will be ran inside Docker container.
+
+Run all tests in tests/ folder:
+```bash
+docker compose exec -w /app api-server uv run pytest tests/*
+```
+
 ## Challenges to tackle
 
 - Source reliability evaluation

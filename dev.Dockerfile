@@ -33,6 +33,9 @@ ENV VIRTUAL_ENV=/app/.venv \
 # Copy source code
 COPY src/ ./src/
 
+# Dev only: Copy tests
+COPY tests/ ./tests
+
 WORKDIR /app/src
 
-ENTRYPOINT ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

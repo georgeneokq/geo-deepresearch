@@ -1,6 +1,6 @@
 import inspect
 from typing import Dict, Any, Callable, get_type_hints, get_origin, get_args, Union
-from util.logging import get_logger
+from geo_deepresearch.util.logging import get_logger
 
 logger = get_logger()
 

@@ -16,18 +16,21 @@ Important points:
 
 import os
 import asyncio
-from agno.agent import Agent
-from agno.models.openai import OpenAILike
+from langfuse import observe
+from openai import AsyncOpenAI
 from pydantic import BaseModel
 from fastapi import FastAPI
 from pydantic import BaseModel
 from agno.run.agent import RunOutput
 from contextlib import asynccontextmanager
-from util.logging import setup_logging
-from subagents.cti_subagent import CtiAgentRunner
+from geo_deepresearch.util.logging import setup_logging
+from geo_deepresearch.subagents.cti_subagent import CtiAgentRunner
+from geo_deepresearch.util.logging import get_logger
+from geo_deepresearch.util.llm import call_llm, openai_client, openai_default_model
 
 setup_logging()
 
+logger = get_logger()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -36,16 +39,6 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
-
-
-class DecomposerOutputItem(BaseModel):
-    expertise: str
-    query: str
-
-
-class DecomposerOutput(BaseModel):
-    subqueries: list[DecomposerOutputItem]
-
 
 decomposer_instructions = """
 Role:
@@ -61,12 +54,11 @@ For example, if asked to perform analysis of a company's stock, you may choose t
 Sub-agent expertise list:
 - cti (Cyber Threat Intelligence)
 - finance (market data, stocks, commodities, cryptocurrency prices)
-- news
-- others (anything that doesn't fall into the rest of the categories)
+- general (anything that doesn't fall into the rest of the categories)
 
 Output format is a JSON object in the following format:
 {
-  "subqueries": [{"expertise": "cti", "query": "IOCs of APT42"}, {"expertise": "news", "query": "APT42 past incidents"}]
+  "subqueries": [{"expertise": "cti", "query": "IOCs of APT42"}, {"expertise": "cti", "query": "APT42 past incidents"}]
 }
 
 """.strip()
@@ -80,35 +72,31 @@ def spawn_research_subagent(expertise: str, query: str):
     elif expertise == "finance":
         # TODO
         pass
-    elif expertise == "news":
-        # TODO
-        pass
     else:
         # Implement a general research agent
         pass
 
 
-def get_decomposer_agent():
-    decomposer_model = OpenAILike(
-        id=os.environ.get("DEEP_RESEARCH_MODEL", "z-ai/glm-4.7-flash"),
-        base_url=os.environ.get("DEEP_RESEARCH_BASE_URL"),
-        api_key=os.environ.get("DEEP_RESEARCH_API_KEY"),
-        temperature=0.2,
-    )
-    decomposer_agent = Agent(
-        name="Decomposer",
-        model=decomposer_model,
-        instructions=decomposer_instructions,
-        output_schema=DecomposerOutput,
-    )
-    return decomposer_agent
+class DecomposerOutputItem(BaseModel):
+    expertise: str
+    query: str
+
+
+class DecomposerOutput(BaseModel):
+    subqueries: list[DecomposerOutputItem]
+
+async def decompose_query(client: AsyncOpenAI, model: str, query: str) -> DecomposerOutput:
+    message = await call_llm(client, model, decomposer_instructions, query, temperature=0.2, output_schema=DecomposerOutput)
+    parsed_response = message.parsed
+    assert isinstance(parsed_response, DecomposerOutput)
+    return parsed_response
 
 
 def preload_tokenizer():
-    from tokenizer_manager import get_tokenizer
+    from geo_deepresearch.tokenizer_manager import get_tokenizer
 
     tokenizer_dir = os.environ.get("TOKENIZER_DIR", "../tokenizer")
-    print(f"Preloading tokenizer from {tokenizer_dir}...")
+    logger.info(f"Preloading tokenizer from {tokenizer_dir}...")
     get_tokenizer(os.environ.get("TOKENIZER_DIR", "../tokenizer"))
 
 
@@ -117,15 +105,14 @@ class ResearchRequestBody(BaseModel):
 
 
 @app.post("/research")
+@observe()
 async def research(body: ResearchRequestBody):
     query = body.query
 
     running_agents = []
 
-    decomposer_agent = get_decomposer_agent()
-    decomposer_result: RunOutput = await decomposer_agent.arun(query)  # type: ignore
-    assert isinstance(decomposer_result.content, DecomposerOutput)
-    subqueries = decomposer_result.content.subqueries
+    decomposer_result = await decompose_query(openai_client, openai_default_model, query)
+    subqueries = decomposer_result.subqueries
 
     # Spawn the agents here
     for subquery in subqueries:

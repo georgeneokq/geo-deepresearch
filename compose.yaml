@@ -10,8 +10,9 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Hot reload source code
+      # Hot reload source code and tests
       - "./src:/app/src"
+      - "./tests:/app/tests"
 
       # Load tokenizer
       - "./tokenizer:/app/tokenizer"

@@ -5,13 +5,13 @@ import logging
 import os
 import httpx
 from pathlib import Path
-from typing import Optional, Any, Dict, List, Callable
+from typing import Optional, Any, Dict
 from openai import AsyncOpenAI
-from util.tokens import count_tokens
-from util.tools import function_to_schema
-from tools.time import append_current_datetime
-from config import config
-from util.logging import get_logger
+from geo_deepresearch.util.tokens import count_tokens
+from geo_deepresearch.util.tools import function_to_schema
+from geo_deepresearch.config import config
+from geo_deepresearch.util.logging import get_logger
+from geo_deepresearch.util.llm import call_llm, openai_client, openai_default_model
 
 logger = get_logger()
 
@@ -97,58 +97,6 @@ class CtiAgentRunner:
 
     def _word_count_to_token_count(self, word_count: int) -> int:
         return int(word_count * 1.3)
-
-    async def _call_llm(
-        self, 
-        system: str, 
-        user: str, 
-        tools: Optional[List[Callable]] = None, 
-        force_tool: Optional[Callable] = None, 
-        max_tokens: Optional[int] = None,
-        temperature: float = 0.6
-    ) -> Any:
-        """
-        Standardized LLM call that introspects Python functions on the fly.
-        """
-        messages = [
-            {"role": "system", "content": append_current_datetime(system)},
-            {"role": "user", "content": user}
-        ]
-        
-        kwargs = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": temperature
-        }
-        
-        if max_tokens: 
-            kwargs["max_tokens"] = max_tokens
-            
-        # Handle on-the-fly tool introspection
-        if tools:
-            kwargs["tools"] = [function_to_schema(f) for f in tools]
-            print(kwargs["tools"])
-            
-        # Handle tool forcing
-        if force_tool:
-            # If force_tool is passed but not in tools list, add it automatically
-            if not tools or force_tool not in tools:
-                kwargs.setdefault("tools", []).append(function_to_schema(force_tool))
-            
-            kwargs["tool_choice"] = {
-                "type": "function", 
-                "function": {"name": force_tool.__name__}
-            }
-        
-        response = await self.client.chat.completions.create(**kwargs)
-
-        message = response.choices[0].message
-
-        # Logging
-        reasoning = getattr(message, 'reasoning_content', None) or getattr(message, 'reasoning', None)
-        logger.debug(f"LLM call complete.{f'\nReasoning:\n{reasoning}\n\n' if reasoning else '\n\n'}Content:\n{message.content}")
-
-        return message
 
     async def _make_serper_request(self, endpoint: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -391,7 +339,7 @@ Estimated word count limit: {recommended_word_limit}.
 Use the word count limit as a guideline on how concise you must be.
         """.strip()
         user_prompt = f"Query: {self.research_topic}\n\nWebpage contents:\n\n{contents}"
-        res = await self._call_llm(append_current_datetime(summarizer_instructions), user_prompt)
+        res = await call_llm(openai_client, openai_default_model, summarizer_instructions, user_prompt)
         if not res.content:
             logger.error("Unexpected empty summarization. Response here:")
             logger.error(res)
@@ -422,28 +370,34 @@ Use the word count limit as a guideline on how concise you must be.
             # Search
             queries_formatted = '\n'.join([f"- {q}" for q in self.used_web_search_queries]) or "None"
             search_prompt = f"Research topic: {self.research_topic}\n\nUsed search queries:\n{queries_formatted}"
-            search_msg = await self._call_llm(WEB_SEARCH_INSTRUCTIONS, search_prompt, tools=[self.web_search], force_tool=self.web_search)
+            search_msg = await call_llm(self.client, self.model, WEB_SEARCH_INSTRUCTIONS, search_prompt, tools=[self.web_search], force_tool=self.web_search)
             
             # print("[DEBUG]: Tool calls for search:")
+            search_tool_calls = search_msg.tool_calls
+            if not search_tool_calls:
+                raise RuntimeError("Web Search failed")
             # print(search_msg.tool_calls)
-            tool_call = search_msg.tool_calls[0]
-            search_results = await self.web_search(**json.loads(tool_call.function.arguments))
+            search_tool_call = search_tool_calls[0]
+            search_results = await self.web_search(**json.loads(search_tool_call.function.arguments))
             logger.debug(f"Web search results:\n{search_results}")
 
             # Browse webpages
             browse_prompt = f"Research topic: {self.research_topic}\n\nExisting references:\n{self.source_list}\n\nWeb search results:\n{search_results}"
-            browse_msg = await self._call_llm(WEBPAGE_BROWSE_INSTRUCTIONS, browse_prompt, tools=[self.webpage_browse], force_tool=self.webpage_browse)
+            browse_msg = await call_llm(self.client, self.model, WEBPAGE_BROWSE_INSTRUCTIONS, browse_prompt, tools=[self.webpage_browse], force_tool=self.webpage_browse)
             logger.debug(browse_prompt)
             
             # print("[DEBUG]: Tool calls for browse:")
             # print(browse_msg.tool_calls)
-            tool_call = browse_msg.tool_calls[0]
-            browse_arguments = json.loads(tool_call.function.arguments)
+            browse_tool_calls = browse_msg.tool_calls
+            if not browse_tool_calls:
+                raise RuntimeError("Web Search failed")
+            browse_tool_call = browse_tool_calls[0]
+            browse_arguments = json.loads(browse_tool_call.function.arguments)
             browsed_contents = await self.webpage_browse(**browse_arguments)
 
             # Summary update
             summary_prompt = f"Research topic: {self.research_topic}\n\nCurrent summary: {self.summary}\n\nNewly browsed contents: {json.dumps(browsed_contents)}"
-            msg = await self._call_llm(SUMMARY_AGENT_INSTRUCTIONS, summary_prompt)
+            msg = await call_llm(self.client, self.model, SUMMARY_AGENT_INSTRUCTIONS, summary_prompt)
             logger.debug(f"Turn {self.num_turns} Summary Prompt:")
             self.summary = msg.content or self.summary
             

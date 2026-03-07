@@ -1,7 +1,7 @@
 import os
 os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 
-from tokenizer_manager import get_tokenizer
+from geo_deepresearch.tokenizer_manager import get_tokenizer
 
 def count_tokens(input_text: str):
     """
