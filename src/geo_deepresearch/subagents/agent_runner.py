@@ -15,7 +15,7 @@ from geo_deepresearch.tokenize import count_tokens
 from geo_deepresearch.util.tools import function_to_schema
 from geo_deepresearch.config import config
 from geo_deepresearch.util.logging import get_logger
-from geo_deepresearch.util.llm import call_llm, openai_client, openai_default_model
+from geo_deepresearch.util.llm import call_llm, openai_default_client, openai_default_model
 from geo_deepresearch.constants import MODEL_MAX_TOKENS
 from geo_deepresearch.browse_manager import (
     BrowseManager,
@@ -40,7 +40,7 @@ You are a summarizer agent.
 You will be given a research topic, along with a summary of the findings so far.
 Given the web search and webpage browsing tool results, add to the existing citation list and summary using information from the previous tool results.
 You should only extract out information relevant to the research topic for updating the summary.
-Deduplicate or merge information as necessary.
+Deduplicate or merge information as necessary, but ensure that every source, even if not referenced, is included in the citation list.
 All statements in your answer must be linked to a citation.
 Ensure to keep all previously linked citations and references list.
 
@@ -382,8 +382,8 @@ class AgentRunner(abc.ABC):
                 incoming_tokens = count_tokens(raw_webpage_content)
 
                 if incoming_tokens > 10000:
-                    print(
-                        f"[DEBUG] Megapage detected ({incoming_tokens} tokens). Processing in chunks..."
+                    logger.debug(
+                        f"Megapage detected ({incoming_tokens} tokens). Processing in chunks..."
                     )
                     # We use overlap so the model doesn't lose context between chunks
                     chunks = self._semantic_chunker(
@@ -394,7 +394,7 @@ class AgentRunner(abc.ABC):
                     if len(chunks) > 1:
                         intermediate_summaries = []
                         for i, chunk in enumerate(chunks):
-                            print(f"[DEBUG] Processing chunk {i+1}/{len(chunks)}...")
+                            logger.debug(f"Processing chunk {i+1}/{len(chunks)}...")
                             # Each chunk gets a fixed budget for its mini-summary
                             chunk_summary = await self.summarize_webpage(chunk, 1000)
                             logger.debug(f"Summary for chunk {i+1}: {chunk_summary}")
@@ -461,13 +461,14 @@ class AgentRunner(abc.ABC):
 Given the following research topic and webpage contents, extract out only the information relevant to the query.
 The webpage contents may be truncated. If it seems truncated, summarize while noting a possible lack of context due truncation.
 Be concise to save tokens, but summarize in a way that the agent receiving your summary can understand it without extra context.
-The data might be chunked; if it is, ensure to deduplicate information, as there is some overlap to avoid loss of context
+The data might be chunked; if it is, ensure to deduplicate information, as there is some chunking overlap to avoid loss of context.
+For the sake of long-form open-ended responses, you should include a "Quotes" section where you write a list quotes word-for-word if they are relevant to the given query.
 Estimated word count limit: {recommended_word_limit}.
 Use the word count limit as a guideline on how concise you must be.
         """.strip()
         user_prompt = f"Query: {self.research_topic}\n\nWebpage contents:\n\n{contents}"
         res = await call_llm(
-            openai_client, openai_default_model, summarizer_instructions, user_prompt
+            openai_default_client, openai_default_model, summarizer_instructions, user_prompt
         )
         if not res.content:
             logger.error("Unexpected empty summarization. Response here:")
@@ -493,7 +494,7 @@ Use the word count limit as a guideline on how concise you must be.
 
         return path
 
-    async def run(self, research_topic: str):
+    async def run(self, research_topic: str, min_sources: Optional[int] = None):
         """
         Contains the main deep research logic.
         If there are sources returned from priority_sources() method,
@@ -501,13 +502,16 @@ Use the word count limit as a guideline on how concise you must be.
 
         Args:
             research_topic (str): Topic to research on
+            min_sources (Optional[int]): Minimum number of sources; defaults to source_limit() as defined by class
         """
         self.research_topic = research_topic
 
         # Queue priority sources
         priority_queue = deque(self.priority_sources().items())
 
-        while len(self.source_list) < self.source_limit() or count_tokens(
+        source_limit = min_sources or self.source_limit()
+
+        while len(self.source_list) < source_limit or count_tokens(
             self.summary
         ) > int(MODEL_MAX_TOKENS / 5 * 4):
             self.num_rounds += 1
@@ -536,11 +540,9 @@ Use the word count limit as a guideline on how concise you must be.
                     force_tool=self.web_search,
                 )
 
-                # print("[DEBUG]: Tool calls for search:")
                 search_tool_calls = search_msg.tool_calls
                 if not search_tool_calls:
                     raise RuntimeError("Web Search failed")
-                # print(search_msg.tool_calls)
                 search_tool_call = search_tool_calls[0]
                 search_results = await self.web_search(
                     **json.loads(search_tool_call.function.arguments)
@@ -559,8 +561,6 @@ Use the word count limit as a guideline on how concise you must be.
             )
             logger.debug(browse_prompt)
 
-            # print("[DEBUG]: Tool calls for browse:")
-            # print(browse_msg.tool_calls)
             browse_tool_calls = browse_msg.tool_calls
             if not browse_tool_calls:
                 raise RuntimeError("Web Search failed")

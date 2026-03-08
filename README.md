@@ -40,12 +40,19 @@ docker compose up -d
 
 Tests will be ran inside Docker container.
 
-Run all tests in tests/ folder:
+Run all unit tests:
 ```bash
-docker compose exec -w /app api-server uv run pytest tests/*
+docker compose exec -it -w /app api-server uv run pytest -m "unit" tests/
+```
+
+Run all e2e tests:
+```bash
+docker compose exec -it -w /app api-server uv run pytest -s -v -m "integration" tests/
 ```
 
 ## Challenges to tackle
 
 - When multiple subagents of the same type are spawned, the current implementation has a high chance of causing repeated browsing of the same webpage.
 - Right now, the child class doesn't do much other than provide sources to prioritize. Looking to find more use of this structure in the future.
+- The intermediate summarization approach for dealing with megapages (very long webpages) is good for extracting pinpoint information (e.g. Listing IOCs of an APT). For long-form research, the intermediate summarization agent has been instructed to include specific quotes word-for-word if it is relevant to the query, but how well it works is not tested yet.
+- Currently not providing google search geographic region as an option to the agent

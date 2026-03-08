@@ -1,3 +1,5 @@
+import asyncio
+from typing import Optional
 from geo_deepresearch.subagents.agent_runner import AgentRunner
 from geo_deepresearch.subagents.general_subagent import GeneralAgentRunner
 from geo_deepresearch.subagents.cti_subagent import CtiAgentRunner
@@ -20,3 +22,6 @@ def spawn_research_subagent(expertise: str) -> AgentRunner:
     agent_runner = get_subagent_by_category(expertise)
 
     return agent_runner
+
+async def run_agents(query: str, agents: list[AgentRunner], min_sources: Optional[int] = None):
+    return await asyncio.gather(*[agent.run(query, min_sources) for agent in agents])

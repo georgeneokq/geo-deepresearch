@@ -2,6 +2,7 @@ import pytest
 import json
 from geo_deepresearch.util.llm import extract_json_from_llm_output
 
+
 @pytest.fixture
 def llm_output_json():
     return """
@@ -17,6 +18,7 @@ def llm_output_json():
     """.strip()
 
 
+@pytest.mark.unit
 def test_extract_json(llm_output_json):
     extracted_json = extract_json_from_llm_output(llm_output_json)
     print(extracted_json)

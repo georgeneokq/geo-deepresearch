@@ -1,7 +1,7 @@
 import os
 import logging
 
-default_logger_name = "geo-deepresearch"
+default_logger_name = "geo_deepresearch"
 default_logger = logging.getLogger(default_logger_name)
 
 def setup_logging(app_name=default_logger_name):
@@ -14,7 +14,8 @@ def setup_logging(app_name=default_logger_name):
     
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        force=True
     )
 
     # Explicitly set your application's logger level

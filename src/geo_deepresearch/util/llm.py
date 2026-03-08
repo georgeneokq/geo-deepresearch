@@ -4,7 +4,7 @@ from geo_deepresearch.tools.time import append_current_datetime
 from typing import Optional, List, Callable, TypeVar, Union
 from geo_deepresearch.util.tools import function_to_schema
 from geo_deepresearch.util.logging import get_logger
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 from langfuse.openai import AsyncOpenAI as LangfuseAsyncOpenAI
 from openai import AsyncOpenAI
 from openai.types.chat import ParsedChatCompletionMessage
@@ -13,7 +13,7 @@ import re
 logger = get_logger()
 
 # Globally shared client to prevent redundant multi initialization
-openai_client = LangfuseAsyncOpenAI(
+openai_default_client = LangfuseAsyncOpenAI(
     api_key=os.environ.get("DEEP_RESEARCH_API_KEY"),
     base_url=os.environ.get("DEEP_RESEARCH_BASE_URL"),
 )
