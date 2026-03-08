@@ -8,6 +8,15 @@ Each subtask will have a category (e.g. cti, news, finance) and will be routed t
 
 This structure allows for more targetted behaviour for each field, such as preferred sources for certain topics, without overloading the context of a single research agent.
 
+If there are preferred sources specified for a certain category, these sources will be used to search google using the advanced search operator "site".
+(e.g. site:cloud.google.com IOCs of APT33)
+
+As agents may be running in parallel and may browse the same website at the same time, mutex is used to prevent them from doing double work.
+If an agent wants to browse a webpage, the agent will first have to read from cache.
+If the cache is empty for the specified URL, the agent will try to acquire a lock for that URL.
+If a lock for that URL already exists and is acquired, it will wait for the lock to be released, then check the cache again.
+If the cache is empty, perhaps due to website browse failure on the other agent's side, the current agent will try to browse it.
+
 ## Setup
 
 ### Download tokenizer
@@ -57,7 +66,10 @@ docker compose exec -it -w /app api-server uv run pytest -s -v -m "e2e" tests/
 
 ## Challenges to tackle
 
-- When multiple subagents of the same type are spawned, the current implementation has a high chance of causing repeated browsing of the same webpage.
 - Right now, the child class doesn't do much other than provide sources to prioritize. Looking to find more use of this structure in the future.
 - The intermediate summarization approach for dealing with megapages (very long webpages) is good for extracting pinpoint information (e.g. Listing IOCs of an APT). For long-form research, the intermediate summarization agent has been instructed to include specific quotes word-for-word if it is relevant to the query, but how well it works is not tested yet.
 - Currently not providing google search geographic region as an option to the agent
+
+## TODO
+
+- 
