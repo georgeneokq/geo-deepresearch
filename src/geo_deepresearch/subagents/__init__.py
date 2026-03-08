@@ -1,4 +1,4 @@
-from geo_deepresearch.subagents.base import AgentRunner
+from geo_deepresearch.subagents.agent_runner import AgentRunner
 from geo_deepresearch.subagents.general_subagent import GeneralAgentRunner
 from geo_deepresearch.subagents.cti_subagent import CtiAgentRunner
 
@@ -11,3 +11,12 @@ subagent_category_mapping = {
 def get_subagent_by_category(category: str) -> AgentRunner:
     agent_runner = subagent_category_mapping.get(category.lower(), GeneralAgentRunner)
     return agent_runner()
+
+def spawn_research_subagent(expertise: str) -> AgentRunner:
+    """
+    Spawns a subagent.
+    """
+    # TODO: Create configuration mapping
+    agent_runner = get_subagent_by_category(expertise)
+
+    return agent_runner

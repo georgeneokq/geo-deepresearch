@@ -1,5 +1,5 @@
 from typing import Dict
-from geo_deepresearch.subagents.base import AgentRunner
+from geo_deepresearch.subagents.agent_runner import AgentRunner
 
 class CtiAgentRunner(AgentRunner):
     def __init__(self):

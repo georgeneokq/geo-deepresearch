@@ -1,3 +1,5 @@
+from typing import Any
+import traceback
 import abc
 import asyncio
 import time
@@ -15,6 +17,10 @@ from geo_deepresearch.config import config
 from geo_deepresearch.util.logging import get_logger
 from geo_deepresearch.util.llm import call_llm, openai_client, openai_default_model
 from geo_deepresearch.constants import MODEL_MAX_TOKENS
+from geo_deepresearch.browse_manager import (
+    BrowseManager,
+    browse_manager as browse_manager_instance,
+)
 
 logger = get_logger()
 
@@ -56,6 +62,8 @@ References:
 
 # TODO: On first round, force webpage search using site: advanced search operator on a list priority sources
 class AgentRunner(abc.ABC):
+    browse_manager: BrowseManager
+
     @abc.abstractmethod
     def priority_sources(self) -> dict[str, str]:
         """
@@ -68,7 +76,7 @@ class AgentRunner(abc.ABC):
         ```
         site:cloud.google.com IOCs of APT33
         ```
-        
+
         Returns:
             dict[str, str]: Mapping of description to URL
         """
@@ -90,6 +98,7 @@ class AgentRunner(abc.ABC):
         openai_base_url: Optional[str] = None,
         openai_api_key: Optional[str] = None,
         model: Optional[str] = None,
+        browse_manager: Optional[BrowseManager] = browse_manager_instance,
     ):
         """
         Base class for creating specialized subagent for deep research in a specific field.
@@ -103,6 +112,7 @@ class AgentRunner(abc.ABC):
             model (str):            Model name of the deep research agent.
                                     Leave blank to pull from environment variable `DEEP_RESEARCH_MODEL`.
         """
+
         self.client = AsyncOpenAI(
             base_url=(openai_api_key or os.environ.get("DEEP_RESEARCH_BASE_URL")),
             api_key=(openai_base_url or os.environ.get("DEEP_RESEARCH_API_KEY")),
@@ -110,6 +120,9 @@ class AgentRunner(abc.ABC):
         self.model = model or os.environ.get(
             "DEEP_RESEARCH_MODEL", "z-ai/glm-4.7-flash"
         )
+
+        assert browse_manager
+        self.browse_manager = browse_manager
 
         self.source_list = []
         self.failed_browses = []
@@ -302,23 +315,68 @@ class AgentRunner(abc.ABC):
 
             full_url = f"https://r.jina.ai/{url}"
             logger.debug(f"Browsing {url}...")
-            try:
-                async with httpx.AsyncClient() as client:
-                    response = await client.get(
-                        full_url,
-                        headers=self._get_jina_headers(),
-                        timeout=self.jina_timeout,
-                    )
 
-                response.raise_for_status()
-                jina_response = response.json()
-                # Jina JSON structure usually has content in 'data', 'content', or 'markdown'
-                jina_data = jina_response.get("data", jina_response)
+            # Check the cache to get webpage content.
+            # If another agent is in the middle of browsing it, this function call will wait
+            # until the lock is released. While the cache should be populated in the case of no failure,
+            # we have to account for failures in the subsequent code.
+            raw_webpage_content = await self.browse_manager.get_cached_webpage(url)
 
-                # print(f"[DEBUG] Jina data:\n{json.dumps(jina_data, indent=2)}")
-                logger.debug(f"Jina data:\n{json.dumps(jina_data, indent=2)}")
-                raw_webpage_content = jina_data.get("content", "")
+            if raw_webpage_content:
+                # Log successful cache hit
+                logger.debug(f"Cache hit for {url}!")
                 logger.debug(f"Raw webpage content: {raw_webpage_content}")
+
+            try:
+                # Edge case handling:
+                # Cache read and lock acquiring, another agent acquires the lock for this url.
+                # If that agent fails to populate the cache, perhaps due to timeout,
+                # raw_webpage_content will be empty after lock is released here.
+                # To handle this, we do a retry loop, and give up after specified max retries to prevent deadlocks.
+                max_retries = 2
+                for i in range(max_retries):
+                    if raw_webpage_content:
+                        # If cache hit, we bypass the browsing
+                        break
+
+                    # If cache miss / previous browse failed, attempt to browse the url.
+                    # Ensure to lock so that other agents don't do double work
+                    logger.debug(f"Acquiring lock for {url}")
+                    async with self.browse_manager.acquire_browse_lock(url):
+                        logger.debug(f"Acquired lock for {url}")
+                        async with httpx.AsyncClient() as client:
+                            response = await client.get(
+                                full_url,
+                                headers=self._get_jina_headers(),
+                                timeout=self.jina_timeout,
+                            )
+
+                        response.raise_for_status()
+                        jina_response = response.json()
+                        # Jina JSON structure usually has content in 'data', 'content', or 'markdown'
+                        jina_data = jina_response.get("data", jina_response)
+
+                        raw_webpage_content = jina_data.get("content", "")
+                        logger.debug(f"Successfully browsed {url}")
+                        logger.debug(
+                            f"Jina response:\n{json.dumps(jina_data, indent=2)}"
+                        )
+                        logger.debug(
+                            f"Jina extracted content: {raw_webpage_content[:200]}"
+                        )
+
+                        # Add to cache
+                        self.browse_manager.add_to_cache(url, raw_webpage_content)
+
+                        # Successfully retrieved webpage contents and added to cache,
+                        # break out of loop and release lock
+                        break
+
+                if not raw_webpage_content:
+                    # Max retries hit and still failed. Give up on this source
+                    raise RuntimeError(
+                        f"Failed to browse after {max_retries} attempts: {url}"
+                    )
 
                 # --- START: RAG-Inspired Semantic Chunking ---
                 incoming_tokens = count_tokens(raw_webpage_content)
@@ -380,8 +438,6 @@ class AgentRunner(abc.ABC):
                 summaries[url] = summarized
 
             except Exception as e:
-                import traceback
-
                 traceback.print_exc()
                 self.failed_browses.append(url)
                 return f"Error reading URL: {str(e)}"
@@ -451,9 +507,9 @@ Use the word count limit as a guideline on how concise you must be.
         # Queue priority sources
         priority_queue = deque(self.priority_sources().items())
 
-        while len(self.source_list) < self.source_limit() or count_tokens(self.summary) > int(
-            MODEL_MAX_TOKENS / 5 * 4
-        ):
+        while len(self.source_list) < self.source_limit() or count_tokens(
+            self.summary
+        ) > int(MODEL_MAX_TOKENS / 5 * 4):
             self.num_rounds += 1
 
             # Search
@@ -462,8 +518,8 @@ Use the word count limit as a guideline on how concise you must be.
             )
 
             # Check if any sites left in the priority queue
-            priority_item = priority_queue.popleft()
-            if priority_item:
+            if len(priority_queue):
+                priority_item = priority_queue.popleft()
                 # If there are sources left to prioritize, bypass the agent call and do deterministic search query first
                 _, site = priority_item
                 search_query = f"site:{site} {self.research_topic}"

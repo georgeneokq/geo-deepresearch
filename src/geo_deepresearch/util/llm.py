@@ -28,7 +28,7 @@ async def call_llm(
     client: AsyncOpenAI,
     model: str,
     system: str,
-    user: str,
+    user: str | list[str],
     tools: Optional[List[Callable]] = None,
     force_tool: Optional[Callable] = None,
     output_schema: Optional[type[T]] = None,
@@ -45,9 +45,21 @@ async def call_llm(
     Raises:
         pydantic.ValidationError: If the LLM response doesn't match output_schema.
     """
+    if isinstance(user, list):
+        if not len(user):
+            raise ValueError("User message cannot be empty")
+
+        user_messages = [
+            {"role": "user", "content": user_message} for user_message in user
+        ]
+    else:
+        user_messages = [
+            {"role": "user", "content": user}
+        ]
+
     messages = [
         {"role": "system", "content": append_current_datetime(system)},
-        {"role": "user", "content": user},
+        *user_messages
     ]
 
     kwargs = {"model": model, "messages": messages, "temperature": temperature}
