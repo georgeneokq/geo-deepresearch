@@ -93,7 +93,9 @@ class BrowseManager():
         Args:
             url (str): URL to wait for lock release of
         """
-        lock = self.url_to_lock_mapping.get(url)
+        async with self.master_lock:
+            lock = self.url_to_lock_mapping.get(url)
+
         if lock:
             async with lock:
                 pass
@@ -120,12 +122,14 @@ class BrowseManager():
             await asyncio.wait_for(lock.acquire(), timeout=self.lock_timeout)
             try:
                 yield
-            except:
+            finally:
+                logger.debug(f"Released lock for {url}")
                 lock.release()
 
             # Run actual code
         except asyncio.TimeoutError:
-            logger.debug(f"Lock timed out for {url}")
+            logger.debug(f"Released lock for {url} (timeout after {self.lock_timeout} seconds)")
+            lock.release()
 
 # Instance to be shared to all agents
 browse_manager = BrowseManager()

@@ -42,12 +42,17 @@ Tests will be ran inside Docker container.
 
 Run all unit tests:
 ```bash
-docker compose exec -it -w /app api-server uv run pytest -m "unit" tests/
+docker compose exec -it -w /app api-server uv run pytest -s -v -m "unit" tests/
+```
+
+Run all integration tests:
+```bash
+docker compose exec -it -w /app api-server uv run pytest -s -v -m "integration" tests/
 ```
 
 Run all e2e tests:
 ```bash
-docker compose exec -it -w /app api-server uv run pytest -s -v -m "integration" tests/
+docker compose exec -it -w /app api-server uv run pytest -s -v -m "e2e" tests/
 ```
 
 ## Challenges to tackle

@@ -23,7 +23,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from geo_deepresearch.util.logging import setup_logging
-from geo_deepresearch.subagents import spawn_research_subagent, AgentRunner, run_agents
+from geo_deepresearch.subagents import create_research_subagent, AgentRunner, run_agents
 from geo_deepresearch.util.logging import get_logger
 from geo_deepresearch.util.llm import openai_default_client, openai_default_model
 from geo_deepresearch.decompose import decompose_query
@@ -62,10 +62,11 @@ async def research(body: ResearchRequestBody):
 
     # Spawn the agents here
     for subquery in subqueries:
-        agents.append(spawn_research_subagent(expertise=subquery.expertise))
+        agents.append(create_research_subagent(expertise=subquery.expertise))
     
     # Run the agents. Filter out ones that did not succeed.
-    results = await run_agents(query, agents)
+    queries = [subquery.query for subquery in subqueries]
+    results = await run_agents(queries, agents)
     
     subqueries_str = [subquery.query for subquery in subqueries]
     final_summary = await summarize_for_final_report(query, subqueries_str, results)

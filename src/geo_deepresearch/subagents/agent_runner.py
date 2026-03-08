@@ -63,6 +63,17 @@ References:
 # TODO: On first round, force webpage search using site: advanced search operator on a list priority sources
 class AgentRunner(abc.ABC):
     browse_manager: BrowseManager
+    source_list: list[str]
+    failed_browses: list[str]
+    used_web_search_queries: list[str]
+    num_rounds: int
+    research_topic: str
+    summary: str
+    jina_api_key: str
+    jina_timeout: float
+    remaining_token_count: int
+    available_tools: dict
+    tools_schema: list
 
     @abc.abstractmethod
     def priority_sources(self) -> dict[str, str]:
@@ -563,7 +574,7 @@ Use the word count limit as a guideline on how concise you must be.
 
             browse_tool_calls = browse_msg.tool_calls
             if not browse_tool_calls:
-                raise RuntimeError("Web Search failed")
+                raise RuntimeError("Webpage browse tool call failed")
             browse_tool_call = browse_tool_calls[0]
             browse_arguments = json.loads(browse_tool_call.function.arguments)
             browsed_contents = await self.webpage_browse(**browse_arguments)
@@ -588,7 +599,7 @@ Use the word count limit as a guideline on how concise you must be.
         # Form the final summary
         errors_section = ""
         if len(self.failed_browses):
-            errors_section = f"\n\n**Errors Browsing URLs**\n\n{'\n'.join([f'{index + 1}. {item}' for index, item in enumerate(self.failed_browses)])}"
+            errors_section = f"\n\n**Error Browsing URLs**\n{'\n'.join([f'{index + 1}. {item}' for index, item in enumerate(self.failed_browses)])}"
 
         self.summary = f"{self.summary}{errors_section if errors_section else ''}"
 
