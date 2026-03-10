@@ -69,7 +69,17 @@ docker compose exec -it -w /app api-server uv run pytest -s -v -m "e2e" tests/
 - Right now, the child class doesn't do much other than provide sources to prioritize. Looking to find more use of this structure in the future.
 - The intermediate summarization approach for dealing with megapages (very long webpages) is good for extracting pinpoint information (e.g. Listing IOCs of an APT). For long-form research, the intermediate summarization agent has been instructed to include specific quotes word-for-word if it is relevant to the query, but how well it works is not tested yet.
 - Currently not providing google search geographic region as an option to the agent
+- Currently only caching content, but the same lock and cache can be used for storing the summary as well. This saves even more calls
+- Current browse retry logic retries up to 3 times no matter what the error code is. This doesn't make sense for 402 (Payment Required) for example.
+- Jina started returning 402 payment required for many websites in one of my runs but when manually browsing to that URL it is publicly accessible. Checking rate limit of Jina API key with "curl https://r.jina.ai -H "Authorization: Bearer <API_KEY>" showed negative balance, further proving it is indeed Jina's rate limit
 
 ## TODO
 
-- 
+- Local document searching
+- Reduce reliance on Jina: Build custom scraper using httpx
+1. Scrape using httpx
+2. Check if content contains any word in the query to detect dynamic JS pages
+3. If word contained, assume scrape was successful. If not, scrape using Playwright.
+4. Pass raw HTML to python-readability -> trafilatura
+5. Pass that into summarize function
+

@@ -6,7 +6,7 @@ class GeneralAgentRunner(AgentRunner):
         super().__init__()
 
     def source_limit(self):
-        return 8
+        return 6
     
     def priority_sources(self) -> Dict[str, str]:
         return {}

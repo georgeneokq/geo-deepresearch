@@ -21,6 +21,10 @@ from geo_deepresearch.browse_manager import (
     BrowseManager,
     browse_manager as browse_manager_instance,
 )
+from geo_deepresearch.web_search_manager import (
+    WebSearchManager,
+    web_search_manager as web_search_manager_instance,
+)
 
 logger = get_logger()
 
@@ -63,6 +67,7 @@ References:
 # TODO: On first round, force webpage search using site: advanced search operator on a list priority sources
 class AgentRunner(abc.ABC):
     browse_manager: BrowseManager
+    web_search_manager: WebSearchManager
     source_list: list[str]
     failed_browses: list[str]
     used_web_search_queries: list[str]
@@ -110,6 +115,7 @@ class AgentRunner(abc.ABC):
         openai_api_key: Optional[str] = None,
         model: Optional[str] = None,
         browse_manager: Optional[BrowseManager] = browse_manager_instance,
+        web_search_manager: Optional[WebSearchManager] = web_search_manager_instance
     ):
         """
         Base class for creating specialized subagent for deep research in a specific field.
@@ -134,6 +140,9 @@ class AgentRunner(abc.ABC):
 
         assert browse_manager
         self.browse_manager = browse_manager
+
+        assert web_search_manager
+        self.web_search_manager = web_search_manager
 
         self.source_list = []
         self.failed_browses = []
@@ -236,28 +245,29 @@ class AgentRunner(abc.ABC):
                     {"error": "Please provide a query to search for"}, indent=2
                 )
 
-            # Cache query
-            self.used_web_search_queries.append(query)
+            async with self.web_search_manager.acquire_web_search_lock():
+                # Cache query
+                self.used_web_search_queries.append(query)
 
-            logging.debug(f"Searching Google for: {query}")
+                logging.debug(f"Searching Google for: {query}")
 
-            params = {
-                "q": query,
-                "num": num_results or 5,
-            }
+                params = {
+                    "q": query,
+                    "num": num_results or 5,
+                }
 
-            result = await self._make_serper_request("search", params)
+                result = await self._make_serper_request("search", params)
 
-            if result["success"]:
-                logger.debug(
-                    f"Successfully found Google search results for query: {query}"
-                )
-                return result["raw_response"]
-            else:
-                logger.error(
-                    f"Error searching Google for query {query}: {result['error']}"
-                )
-                return json.dumps({"error": result["error"]}, indent=2)
+                if result["success"]:
+                    logger.debug(
+                        f"Successfully found Google search results for query: {query}"
+                    )
+                    return result["raw_response"]
+                else:
+                    logger.error(
+                        f"Error searching Google for query {query}: {result['error']}"
+                    )
+                    return json.dumps({"error": result["error"]}, indent=2)
 
         except Exception as e:
             logger.error(f"Unexpected error searching Google for query {query}: {e}")

@@ -1,3 +1,5 @@
+import asyncio
+import random
 import os
 import json
 from geo_deepresearch.tools.time import append_current_datetime
@@ -6,7 +8,7 @@ from geo_deepresearch.util.tools import function_to_schema
 from geo_deepresearch.util.logging import get_logger
 from pydantic import BaseModel
 from langfuse.openai import AsyncOpenAI as LangfuseAsyncOpenAI
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, RateLimitError
 from openai.types.chat import ParsedChatCompletionMessage
 import re
 
@@ -82,7 +84,22 @@ async def call_llm(
             "function": {"name": force_tool.__name__},
         }
 
-    response = await client.chat.completions.create(**kwargs)
+    response = None
+    max_retries = 10
+    for attempt in range(max_retries):
+        try:
+            response = await client.chat.completions.create(**kwargs)
+            break
+        except RateLimitError as e:
+            logger.error(str(e))
+            # Exponential backoff with a little bit of random jitter (0 to 1000ms)
+            wait_time = (2 ** attempt) + random.random()
+            
+            logger.warning(f"Rate limit hit in call_llm. Retrying in {wait_time:.2f}s...")
+            await asyncio.sleep(wait_time)
+    
+    if not response:
+        raise RuntimeError(f"call_llm failed after {max_retries} tries.")
 
     message = response.choices[0].message
 

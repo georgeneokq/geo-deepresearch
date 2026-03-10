@@ -14,8 +14,6 @@ Important points:
 - Every system prompt must have current datetime appended
 """
 
-import asyncio
-import random
 from langfuse import observe
 from pydantic import BaseModel
 from fastapi import FastAPI
