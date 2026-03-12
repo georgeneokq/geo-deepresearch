@@ -1,0 +1,13 @@
+[project]
+name = "qdrant-cron"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastembed>=0.7.4",
+    "pymupdf>=1.27.2",
+    "python-docx>=1.2.0",
+    "python-magic>=0.4.27",
+    "qdrant-client>=1.17.0",
+]

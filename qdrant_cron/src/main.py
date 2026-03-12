@@ -1,0 +1,246 @@
+import asyncio
+import httpx
+import os
+from qdrant_client import AsyncQdrantClient, models
+import hashlib
+import uuid
+from dataclasses import dataclass
+from typing import Optional
+import os
+from extract import extract_text
+from embedding import EMBEDDING_MODEL, preload_embedding_model
+from util.logger import get_logger, setup_logging
+
+setup_logging()
+
+logger = get_logger()
+
+# Configuration
+COLLECTION_NAME = os.environ.get("QDRANT_COLLECTION_NAME", "internal_docs")
+WATCH_DIR = os.environ.get("INGEST_DIR", "/app/ingest_docs")
+QDRANT_URL = os.environ.get("QDRANT_URL", "http://qdrant:6333")
+
+client = AsyncQdrantClient(url=QDRANT_URL)
+
+ingesting_files: set[str] = set()
+
+
+@dataclass
+class IngestedFile:
+    file_name: str
+    file_hash: str
+    text: str
+
+
+type IngestedFilesCache = dict[str, IngestedFile]
+
+ingested_files: IngestedFilesCache = {}
+
+
+def generate_file_sha256(
+    *, file_content: Optional[str] = None, file_path: Optional[str] = None
+):
+    """
+    Generate sha256 for a given file path or contents.
+    Either file_content or file_path must be specified.
+    """
+    sha256_hash = hashlib.sha256()
+
+    if file_content:
+        sha256_hash.update(file_content.encode("utf-8"))
+    elif file_path:
+        with open(file_path, "rb") as f:
+            # Read in chunks to handle large files
+            for byte_block in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(byte_block)
+    else:
+        raise RuntimeError(
+            "Error in generating sha256: either file_content or file_path must be provided"
+        )
+
+    return sha256_hash.hexdigest()
+
+
+def generate_file_uuid(hash: str):
+    """
+    Generates a deterministic UUID from a file hash.
+    """
+    # Create a deterministic UUID from the hex digest
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, hash))
+
+
+async def populate_ingested_files_cache(
+    ingested_files_cache: IngestedFilesCache
+):
+    """
+    Retrieves all 'file_name' values from the collection payload.
+
+    Args:
+      ingested_files_set (dict[str, dict[str, Any]]): A dict to cache already ingested files
+    """
+    next_page = None
+
+    total_points = 0
+
+    while True:
+        # "Scroll" through the points to get the metadata
+        points, next_page = await client.scroll(
+            collection_name=COLLECTION_NAME,
+            limit=100,
+            offset=next_page,
+            with_payload=True,
+            with_vectors=False,
+        )
+
+        for point in points:
+            if point.payload and "file_name" in point.payload:
+                file_name = point.payload["file_name"]
+                ingested_files_cache[file_name] = IngestedFile(
+                    file_name=file_name,
+                    file_hash=point.payload["file_hash"],
+                    text=point.payload["text"]
+                )
+
+        total_points += len(points)
+
+        if next_page is None:
+            break
+    
+    logger.info(f"{total_points} points loaded from Qdrant")
+
+
+async def ingest_file(file_path: str, embedding_model: str = EMBEDDING_MODEL):
+    """
+    Ingest file at specified path.
+    Currently only accepts pure text, PDF and docx documents.
+    """
+    file_name = os.path.basename(file_path)
+
+    try:
+        logger.debug(f"Ingesting: {file_path}")
+
+        # Generate embedding
+        file_content = extract_text(file_path)
+
+        vector = models.Document(text=file_content, model=embedding_model)
+
+        # Generate metadata
+        file_hash = generate_file_sha256(file_content=file_content)
+        id = generate_file_uuid(file_hash)
+        payload = {
+            "file_name": file_name,
+            "file_hash": file_hash,
+            "text": file_content
+        }
+
+        # Upsert to qdrant
+        await client.upsert(
+            collection_name=COLLECTION_NAME,
+            points=[
+                models.PointStruct(
+                    id=id,
+                    vector=vector,
+                    payload=payload
+                )
+            ],
+        )
+
+        # Add to cache
+        ingested_files[file_name] = IngestedFile(
+            file_name=file_name,
+            file_hash=file_hash,
+            text=file_content
+        )
+    except Exception as e:
+        logger.error(f"Failed to ingest {file_name}: {e}")
+
+
+async def init_qdrant():
+    # Check if collection exists
+    exists = await client.collection_exists(COLLECTION_NAME)
+
+    if not exists:
+        embedding_size = int(os.environ.get("EMBEDDING_SIZE", 384))
+        print(f"Creating collection: {COLLECTION_NAME}")
+        await client.create_collection(
+            collection_name=COLLECTION_NAME,
+            vectors_config=models.VectorParams(
+                size=embedding_size,
+                distance=models.Distance.COSINE,
+            ),
+        )
+
+        # Pro-tip: Create an index on file_name for faster lookups
+        await client.create_payload_index(
+            collection_name=COLLECTION_NAME,
+            field_name="file_name",
+            field_schema=models.PayloadSchemaType.KEYWORD,
+        )
+
+
+async def check_and_sync(
+    *, docs_dir: str = WATCH_DIR, ingested_files_cache: IngestedFilesCache
+):
+    """Check for new files and ingest"""
+    # Scan directory for new docs
+    local_files = [
+        f for f in os.listdir(docs_dir) if os.path.isfile(os.path.join(docs_dir, f))
+    ]
+
+    # Find files that haven't been processed
+    for file_name in local_files:
+        file_path = os.path.join(WATCH_DIR, file_name)
+        if file_name not in ingesting_files and file_name not in ingested_files_cache:
+            ingesting_files.add(file_name)
+            try:
+                await ingest_file(file_path)
+            except Exception as e:
+                logger.error(f"Failed to ingest {file_path}: {e}")
+            finally:
+                ingesting_files.remove(file_name)
+
+
+async def wait_for_qdrant_startup():
+    async with httpx.AsyncClient() as client:
+        while True:
+            try:
+                response = await client.get(f"{QDRANT_URL}/readyz", timeout=1.0)
+                if response.status_code == 200:
+                    logger.debug("Qdrant is ready!")
+                    break
+                await asyncio.sleep(1)
+            except (httpx.ConnectError, httpx.TimeoutException):
+                pass
+
+
+async def main():
+    # Check qdrant is ready
+    await wait_for_qdrant_startup()
+
+    # Initialize collection in qdrant
+    init_db_future = init_qdrant()
+
+    # Preload embedding model while qdrant is initializing
+    preload_embedding_model()
+
+    # Wait for qdrant to be initialized
+    await init_db_future
+
+    logger.debug("Checking for new files...")
+
+    # Populate ingested files cache
+    await populate_ingested_files_cache(ingested_files_cache=ingested_files)
+
+    # Watch for new files
+    logger.info(f"Watching for files to ingest in {WATCH_DIR}")
+    while True:
+        try:
+            await check_and_sync(ingested_files_cache=ingested_files)
+        except Exception as e:
+            logger.error(f"Error: {e}")
+
+        await asyncio.sleep(5)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

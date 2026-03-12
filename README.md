@@ -33,7 +33,15 @@ After it is installed, move the entire folder containing the tokenizer files int
 
 This folder will be volumed into the container, if you wish to modify this you have to change the volume and env var.
 
-### Build the container
+### Folder for internal docs ingestion
+
+We use Qdrant for internal docs ingestion and querying. Set up the folder to drop docs into:
+
+```bash
+mkdir -p qdrant_cron/ingest_docs
+```
+
+### Build the containers
 
 ```bash
 docker compose build
@@ -62,6 +70,14 @@ docker compose exec -it -w /app api-server uv run pytest -s -v -m "integration" 
 Run all e2e tests:
 ```bash
 docker compose exec -it -w /app api-server uv run pytest -s -v -m "e2e" tests/
+```
+
+### Qdrant
+
+To test querying Qdrant for internal docs, ensure the qdrant_cron container is up, then run:
+
+```bash
+docker compose exec -it qdrant_cron python -m util.test_query "What is the guest subnet in Amaris.AI?"
 ```
 
 ## Challenges to tackle

@@ -16,3 +16,35 @@ services:
 
       # Load tokenizer
       - "./tokenizer:/app/tokenizer"
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    ports:
+      - "6333:6333" # HTTP API and Web UI
+      - "6334:6334" # gRPC API
+    volumes:
+      - "qdrant_storage:/qdrant/storage"
+    environment:
+      # Optional: Set an API key for security
+      # - QDRANT__SERVICE__API_KEY=your_secret_key_here
+      - QDRANT__LOGGER__LEVEL=INFO
+
+  qdrant_cron:
+    build:
+      context: ./qdrant_cron
+      dockerfile: dev.Dockerfile
+    restart: unless-stopped
+    env_file:
+      - qdrant_cron/.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Hot reload source code and tests
+      - "./qdrant_cron/src:/app/src"
+
+      # For document ingestion
+      - "./qdrant_cron/ingest_docs:/app/ingest_docs:ro"
+
+volumes:
+  qdrant_storage:

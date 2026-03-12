@@ -17,3 +17,6 @@ tokenizer/
 tokenizers/
 
 **/outputs
+
+# qdrant
+qdrant_storage/
