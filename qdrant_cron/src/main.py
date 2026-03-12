@@ -142,6 +142,9 @@ async def ingest_file(file_path: str, *, file_hash: Optional[str] = None, embedd
         # Break file up into chunks
         chunks = chunk_document(contents)
 
+        # Prepare points to ingest into Qdrant at once
+        points = []
+
         for index, chunk in enumerate(chunks):
             vector = models.Document(text=chunk, model=embedding_model)
 
@@ -153,12 +156,13 @@ async def ingest_file(file_path: str, *, file_hash: Optional[str] = None, embedd
                 "chunk_index": index,
                 "text": chunk,
             }
+            points.append(models.PointStruct(id=id, vector=vector, payload=payload))
 
-            # Upsert to qdrant
-            await client.upsert(
-                collection_name=COLLECTION_NAME,
-                points=[models.PointStruct(id=id, vector=vector, payload=payload)],
-            )
+        # Upsert to qdrant
+        await client.upsert(
+            collection_name=COLLECTION_NAME,
+            points=points,
+        )
     except Exception as e:
         logger.error(f"Failed to ingest {file_name}: {e}")
 
