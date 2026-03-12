@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Optional
 import os
 from extract import extract_text
-from embedding import EMBEDDING_MODEL, preload_embedding_model
+from embedding import EMBEDDING_MODEL, preload_embedding_model, chunk_document
 from util.logger import get_logger, setup_logging
 
 setup_logging()
@@ -29,7 +29,6 @@ ingesting_files: set[str] = set()
 class IngestedFile:
     file_name: str
     file_hash: str
-    text: str
 
 
 type IngestedFilesCache = dict[str, IngestedFile]
@@ -38,7 +37,7 @@ ingested_files: IngestedFilesCache = {}
 
 
 def generate_file_sha256(
-    *, file_content: Optional[str] = None, file_path: Optional[str] = None
+    *, file_bytes: Optional[bytes] = None, file_path: Optional[str] = None
 ):
     """
     Generate sha256 for a given file path or contents.
@@ -46,8 +45,8 @@ def generate_file_sha256(
     """
     sha256_hash = hashlib.sha256()
 
-    if file_content:
-        sha256_hash.update(file_content.encode("utf-8"))
+    if file_bytes:
+        sha256_hash.update(file_bytes)
     elif file_path:
         with open(file_path, "rb") as f:
             # Read in chunks to handle large files
@@ -61,17 +60,20 @@ def generate_file_sha256(
     return sha256_hash.hexdigest()
 
 
-def generate_file_uuid(hash: str):
+def generate_file_uuid(hash: str, index: int = 0):
     """
-    Generates a deterministic UUID from a file hash.
+    Generates a deterministic UUID from a file hash and an optional index,
+    where the index defaults to 0.
     """
     # Create a deterministic UUID from the hex digest
-    return str(uuid.uuid5(uuid.NAMESPACE_DNS, hash))
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{hash}_{index}"))
 
 
-async def populate_ingested_files_cache(
-    ingested_files_cache: IngestedFilesCache
-):
+def get_file_cache_key(file_name: str, file_hash: str):
+    return f"{file_name}_{file_hash}"
+
+
+async def populate_ingested_files_cache(ingested_files_cache: IngestedFilesCache):
     """
     Retrieves all 'file_name' values from the collection payload.
 
@@ -81,6 +83,7 @@ async def populate_ingested_files_cache(
     next_page = None
 
     total_points = 0
+    total_files = 0
 
     while True:
         # "Scroll" through the points to get the metadata
@@ -94,63 +97,68 @@ async def populate_ingested_files_cache(
 
         for point in points:
             if point.payload and "file_name" in point.payload:
+                # If the file is not yet encountered while scrolling, add it in.
+                # Use hash as part of key
                 file_name = point.payload["file_name"]
-                ingested_files_cache[file_name] = IngestedFile(
-                    file_name=file_name,
-                    file_hash=point.payload["file_hash"],
-                    text=point.payload["text"]
-                )
+                file_hash = point.payload["file_hash"]
+                key = get_file_cache_key(file_name, file_hash)
+                if key not in ingested_files_cache:
+                    ingested_files_cache[key] = IngestedFile(
+                        file_name=file_name,
+                        file_hash=file_hash,
+                    )
+                    total_files += 1
 
         total_points += len(points)
 
         if next_page is None:
             break
-    
-    logger.info(f"{total_points} points loaded from Qdrant")
+
+    logger.info(f"{total_files} files, {total_points} points loaded from Qdrant")
 
 
-async def ingest_file(file_path: str, embedding_model: str = EMBEDDING_MODEL):
+async def ingest_file(file_path: str, *, file_hash: Optional[str] = None, embedding_model: str = EMBEDDING_MODEL):
     """
     Ingest file at specified path.
     Currently only accepts pure text, PDF and docx documents.
+
+    Args:
+        file_path (str): Path of file to ingest
+        file_hash (str): Skips calculation of sha256 if provided
+        embedding_model (str): Text embedding model for ingestion
     """
     file_name = os.path.basename(file_path)
 
     try:
-        logger.debug(f"Ingesting: {file_path}")
+        with open(file_path, "rb") as f:
+            file_bytes = f.read()
 
-        # Generate embedding
-        file_content = extract_text(file_path)
+        # Extract text for different types of documents
+        contents = extract_text(file_path)
 
-        vector = models.Document(text=file_content, model=embedding_model)
+        # File hash as secondary unique identifier
+        hash = file_hash or generate_file_sha256(file_bytes=file_bytes)
 
-        # Generate metadata
-        file_hash = generate_file_sha256(file_content=file_content)
-        id = generate_file_uuid(file_hash)
-        payload = {
-            "file_name": file_name,
-            "file_hash": file_hash,
-            "text": file_content
-        }
+        # Break file up into chunks
+        chunks = chunk_document(contents)
 
-        # Upsert to qdrant
-        await client.upsert(
-            collection_name=COLLECTION_NAME,
-            points=[
-                models.PointStruct(
-                    id=id,
-                    vector=vector,
-                    payload=payload
-                )
-            ],
-        )
+        for index, chunk in enumerate(chunks):
+            vector = models.Document(text=chunk, model=embedding_model)
 
-        # Add to cache
-        ingested_files[file_name] = IngestedFile(
-            file_name=file_name,
-            file_hash=file_hash,
-            text=file_content
-        )
+            # Generate metadata
+            id = generate_file_uuid(hash, index)
+            payload = {
+                "file_name": file_name,
+                "file_hash": hash,
+                "chunk_index": index,
+                "text": chunk,
+            }
+
+            # Upsert to qdrant
+            await client.upsert(
+                collection_name=COLLECTION_NAME,
+                points=[models.PointStruct(id=id, vector=vector, payload=payload)],
+            )
     except Exception as e:
         logger.error(f"Failed to ingest {file_name}: {e}")
 
@@ -190,14 +198,29 @@ async def check_and_sync(
     # Find files that haven't been processed
     for file_name in local_files:
         file_path = os.path.join(WATCH_DIR, file_name)
+
+        # Get key for caching
+        with open(file_path, "rb") as f:
+            file_bytes = f.read()
+        
+        file_hash = generate_file_sha256(file_bytes=file_bytes)
+
+        cache_key = get_file_cache_key(os.path.basename(file_path), file_hash)
+
         if file_name not in ingesting_files and file_name not in ingested_files_cache:
-            ingesting_files.add(file_name)
+            ingesting_files.add(cache_key)
             try:
-                await ingest_file(file_path)
+                # Ingest and add to cache
+                logger.debug(f"Ingesting: {file_path}")
+                await ingest_file(file_path, file_hash=file_hash)
+                ingested_files[file_name] = IngestedFile(
+                    file_name=file_name,
+                    file_hash=file_hash,
+                )
             except Exception as e:
                 logger.error(f"Failed to ingest {file_path}: {e}")
             finally:
-                ingesting_files.remove(file_name)
+                ingesting_files.remove(cache_key)
 
 
 async def wait_for_qdrant_startup():

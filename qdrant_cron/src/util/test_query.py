@@ -11,7 +11,7 @@ async def test_search(query_text: str, *, client: AsyncQdrantClient):
     results = (await client.query_points(
         collection_name="internal_docs",
         query=vector,
-        limit=3,
+        limit=5,
         with_payload=True
     )).points
 
@@ -23,7 +23,8 @@ async def test_search(query_text: str, *, client: AsyncQdrantClient):
 
         print(f"{i+1}. Score: {res.score:.4f}")
         print(f"   File: {res.payload.get('file_name')}")
-        print(f"   Excerpt: {res.payload.get('text', "")[:100]}...")
+        print(f"   Chunk Index: {res.payload.get('chunk_index')}")
+        print(f"   Chunk Content: {res.payload.get('text', "")}...")
         print("-" * 20)
 
 if __name__ == "__main__":
