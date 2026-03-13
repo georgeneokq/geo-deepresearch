@@ -9,6 +9,7 @@ from typing import Optional
 import os
 from extract import extract_text
 from embedding import DENSE_EMBEDDING_MODEL, SPARSE_EMBEDDING_MODEL, preload_embedding_model, chunk_document, preload_sparse_embedding_model
+from label import get_chunk_label
 from util.logger import get_logger, setup_logging
 
 setup_logging()
@@ -146,7 +147,20 @@ async def ingest_file(
         hash = file_hash or generate_file_sha256(file_bytes=file_bytes)
 
         # Break file up into chunks
-        chunks = chunk_document(contents)
+        initial_chunks = chunk_document(contents, chunk_size=650)
+        chunks = []
+
+        if os.environ.get("ENABLE_DYNAMIC_CHUNK_LABELLING", "").lower() == "true":
+            # To avoid rate limits, we run in sequence
+            # TODO: Make parallelism a configurable option
+            for chunk in initial_chunks:
+                logger.debug(f"Labelling chunk: {chunk[:150]}")
+                label = await get_chunk_label(chunk, contents, file_name)
+                logger.debug(f"Labelled chunk: {chunk[:150]}")
+                labelled_chunk = f"**{label}**\n\n{chunk}"
+                chunks.append(labelled_chunk)
+        else:
+            chunks = initial_chunks
 
         # Prepare points to ingest into Qdrant at once
         points = []
@@ -188,12 +202,12 @@ async def init_qdrant():
     exists = await client.collection_exists(COLLECTION_NAME)
 
     if not exists:
-        embedding_size = int(os.environ.get("DENSE_EMBEDDING_SIZE", 384))
+        dense_embedding_size = int(os.environ.get("DENSE_EMBEDDING_SIZE", 384))
         print(f"Creating collection: {COLLECTION_NAME}")
         await client.create_collection(
             collection_name=COLLECTION_NAME,
             vectors_config=models.VectorParams(
-                size=embedding_size,
+                size=dense_embedding_size,
                 distance=models.Distance.COSINE,
             ),
             # Sparse Vector Config (Keyword-based)

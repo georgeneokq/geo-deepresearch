@@ -44,7 +44,7 @@ def chunk_document(text: str, chunk_size: int = 800, overlap_ratio: float = 0.1)
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
         separators=["\n\n", "\n", ". ", " ", ""],
-        strip_whitespace=True
+        strip_whitespace=False
     )
 
     chunks = splitter.split_text(text)

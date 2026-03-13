@@ -20,7 +20,7 @@ async def test_search(query_text: str, *, client: AsyncQdrantClient):
     # Search Qdrant
     results = (await client.query_points(
         collection_name="internal_docs",
-        limit=3,
+        limit=5,
         prefetch=prefetch,
         query=models.FusionQuery(fusion=models.Fusion.RRF),
         with_payload=True
@@ -36,7 +36,7 @@ async def test_search(query_text: str, *, client: AsyncQdrantClient):
         print(f"{i+1}. Score: {res.score:.4f}")
         print(f"   File: {res.payload.get('file_name')}")
         print(f"   Chunk Index: {res.payload.get('chunk_index')}")
-        print(f"   Chunk Content: {res.payload.get('text', "")}...")
+        print(f"   Chunk Content: {res.payload.get('text', "")}")
         print("-" * 20)
 
 if __name__ == "__main__":
