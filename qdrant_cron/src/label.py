@@ -23,6 +23,8 @@ openai_client = AsyncOpenAI(
 openai_model = os.environ.get("CHUNK_LABELLER_MODEL", "qwen/qwen3.5-9b")
 
 
+
+
 async def get_chunk_label(text: str, full_document_content: str, document_title: str):
     """
     Labels a chunk of text based on title and surrounding text in the document.

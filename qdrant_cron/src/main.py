@@ -2,7 +2,6 @@ import asyncio
 import httpx
 import os
 from qdrant_client import AsyncQdrantClient, models
-import hashlib
 import uuid
 from dataclasses import dataclass
 from typing import Optional
@@ -11,6 +10,8 @@ from extract import extract_text
 from embedding import DENSE_EMBEDDING_MODEL, SPARSE_EMBEDDING_MODEL, preload_embedding_model, chunk_document, preload_sparse_embedding_model
 from label import get_chunk_label
 from util.logger import get_logger, setup_logging
+from schemas import Chunk
+from util.crypto import generate_file_sha256
 
 setup_logging()
 
@@ -36,29 +37,6 @@ type IngestedFilesCache = dict[str, IngestedFile]
 
 ingested_files: IngestedFilesCache = {}
 
-
-def generate_file_sha256(
-    *, file_bytes: Optional[bytes] = None, file_path: Optional[str] = None
-):
-    """
-    Generate sha256 for a given file path or contents.
-    Either file_content or file_path must be specified.
-    """
-    sha256_hash = hashlib.sha256()
-
-    if file_bytes:
-        sha256_hash.update(file_bytes)
-    elif file_path:
-        with open(file_path, "rb") as f:
-            # Read in chunks to handle large files
-            for byte_block in iter(lambda: f.read(4096), b""):
-                sha256_hash.update(byte_block)
-    else:
-        raise RuntimeError(
-            "Error in generating sha256: either file_content or file_path must be provided"
-        )
-
-    return sha256_hash.hexdigest()
 
 
 def generate_file_uuid(hash: str, index: int = 0):
@@ -141,24 +119,36 @@ async def ingest_file(
             file_bytes = f.read()
 
         # Extract text for different types of documents
-        contents = extract_text(file_path)
+        contents = extract_text(file_path=file_path)
 
         # File hash as secondary unique identifier
         hash = file_hash or generate_file_sha256(file_bytes=file_bytes)
 
-        # Break file up into chunks
-        initial_chunks = chunk_document(contents, chunk_size=650)
-        chunks = []
+        # Break file up into chunks.
+        # Use document name as default label
+        initial_chunks: list[Chunk] = [
+            {
+                "chunk": chunk,
+                "start_index": start_index,
+                "label": file_name
+            }
+            for chunk, start_index in chunk_document(contents, chunk_size=700)
+        ]
+        chunks: list[Chunk] = []
 
         if os.environ.get("ENABLE_DYNAMIC_CHUNK_LABELLING", "").lower() == "true":
             # To avoid rate limits, we run in sequence
             # TODO: Make parallelism a configurable option
             for chunk in initial_chunks:
-                logger.debug(f"Labelling chunk: {chunk[:150]}")
-                label = await get_chunk_label(chunk, contents, file_name)
-                logger.debug(f"Labelled chunk: {chunk[:150]}")
-                labelled_chunk = f"**{label}**\n\n{chunk}"
-                chunks.append(labelled_chunk)
+                chunk_text = chunk["chunk"]
+                logger.debug(f"Labelling chunk: {chunk_text[:150]}...")
+                label = await get_chunk_label(chunk_text, contents, file_name)
+                logger.debug(f"Labelled chunk: {chunk_text[:150]}...")
+                chunks.append({
+                    "label": label,
+                    "start_index": chunk["start_index"],
+                    "chunk": chunk_text
+                })
         else:
             chunks = initial_chunks
 
@@ -167,9 +157,14 @@ async def ingest_file(
 
         for index, chunk in enumerate(chunks):
             # Define both dense and sparse vector for hybrid search; vector similarity + keyword search
+            # Insert a labelled chunk as vector for boosting query accuracy, but only the raw chunk in the payload
+            label = chunk["label"]
+            chunk_text = chunk["chunk"]
+            start_index = chunk["start_index"]
+            labelled_chunk = f"**{label}**\n\n{chunk_text}"
             vector = {
-                "": models.Document(text=chunk, model=dense_model),
-                "sparse-text": models.Document(text=chunk, model=sparse_model),
+                "": models.Document(text=labelled_chunk, model=dense_model),
+                "sparse-text": models.Document(text=labelled_chunk, model=sparse_model),
             }
 
             # Generate metadata
@@ -178,7 +173,9 @@ async def ingest_file(
                 "file_name": file_name,
                 "file_hash": hash,
                 "chunk_index": index,
-                "text": chunk,
+                "substring_index": start_index,
+                "label": label,
+                "text": chunk_text,
             }
             points.append(
                 models.PointStruct(
