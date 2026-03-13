@@ -1,17 +1,28 @@
 import argparse
 import asyncio
 import os
-from qdrant_client import AsyncQdrantClient
-from embedding import embed_text, EMBEDDING_MODEL
+from qdrant_client import AsyncQdrantClient, models
+from embedding import DENSE_EMBEDDING_MODEL, SPARSE_EMBEDDING_MODEL
 
 async def test_search(query_text: str, *, client: AsyncQdrantClient):
-    vector = embed_text(query_text, EMBEDDING_MODEL)
+    prefetch = [
+        models.Prefetch(
+            query=models.Document(text=query_text, model=DENSE_EMBEDDING_MODEL),
+            limit=20,
+        ),
+        models.Prefetch(
+            query=models.Document(text=query_text, model=SPARSE_EMBEDDING_MODEL),
+            using="sparse-text",
+            limit=20,
+        ),
+    ]
 
     # Search Qdrant
     results = (await client.query_points(
         collection_name="internal_docs",
-        query=vector,
-        limit=5,
+        limit=3,
+        prefetch=prefetch,
+        query=models.FusionQuery(fusion=models.Fusion.RRF),
         with_payload=True
     )).points
 
@@ -21,6 +32,7 @@ async def test_search(query_text: str, *, client: AsyncQdrantClient):
             print("Unexpected point with no payload, skipping.")
             continue
 
+        # print(res)
         print(f"{i+1}. Score: {res.score:.4f}")
         print(f"   File: {res.payload.get('file_name')}")
         print(f"   Chunk Index: {res.payload.get('chunk_index')}")

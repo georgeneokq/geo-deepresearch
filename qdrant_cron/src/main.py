@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Optional
 import os
 from extract import extract_text
-from embedding import EMBEDDING_MODEL, preload_embedding_model, chunk_document
+from embedding import DENSE_EMBEDDING_MODEL, SPARSE_EMBEDDING_MODEL, preload_embedding_model, chunk_document, preload_sparse_embedding_model
 from util.logger import get_logger, setup_logging
 
 setup_logging()
@@ -117,7 +117,13 @@ async def populate_ingested_files_cache(ingested_files_cache: IngestedFilesCache
     logger.info(f"{total_files} files, {total_points} points loaded from Qdrant")
 
 
-async def ingest_file(file_path: str, *, file_hash: Optional[str] = None, embedding_model: str = EMBEDDING_MODEL):
+async def ingest_file(
+    file_path: str,
+    *,
+    file_hash: Optional[str] = None,
+    dense_model: str = DENSE_EMBEDDING_MODEL,
+    sparse_model: str = SPARSE_EMBEDDING_MODEL
+):
     """
     Ingest file at specified path.
     Currently only accepts pure text, PDF and docx documents.
@@ -146,7 +152,11 @@ async def ingest_file(file_path: str, *, file_hash: Optional[str] = None, embedd
         points = []
 
         for index, chunk in enumerate(chunks):
-            vector = models.Document(text=chunk, model=embedding_model)
+            # Define both dense and sparse vector for hybrid search; vector similarity + keyword search
+            vector = {
+                "": models.Document(text=chunk, model=dense_model),
+                "sparse-text": models.Document(text=chunk, model=sparse_model),
+            }
 
             # Generate metadata
             id = generate_file_uuid(hash, index)
@@ -156,7 +166,13 @@ async def ingest_file(file_path: str, *, file_hash: Optional[str] = None, embedd
                 "chunk_index": index,
                 "text": chunk,
             }
-            points.append(models.PointStruct(id=id, vector=vector, payload=payload))
+            points.append(
+                models.PointStruct(
+                    id=id,
+                    vector=vector,  # type:ignore
+                    payload=payload
+                )
+            )
 
         # Upsert to qdrant
         await client.upsert(
@@ -172,7 +188,7 @@ async def init_qdrant():
     exists = await client.collection_exists(COLLECTION_NAME)
 
     if not exists:
-        embedding_size = int(os.environ.get("EMBEDDING_SIZE", 384))
+        embedding_size = int(os.environ.get("DENSE_EMBEDDING_SIZE", 384))
         print(f"Creating collection: {COLLECTION_NAME}")
         await client.create_collection(
             collection_name=COLLECTION_NAME,
@@ -180,6 +196,12 @@ async def init_qdrant():
                 size=embedding_size,
                 distance=models.Distance.COSINE,
             ),
+            # Sparse Vector Config (Keyword-based)
+            sparse_vectors_config={
+                "sparse-text": models.SparseVectorParams(
+                    index=models.SparseIndexParams(on_disk=True)
+                )
+            },
         )
 
         # Pro-tip: Create an index on file_name for faster lookups
@@ -206,7 +228,7 @@ async def check_and_sync(
         # Get key for caching
         with open(file_path, "rb") as f:
             file_bytes = f.read()
-        
+
         file_hash = generate_file_sha256(file_bytes=file_bytes)
 
         cache_key = get_file_cache_key(os.path.basename(file_path), file_hash)
@@ -240,18 +262,23 @@ async def wait_for_qdrant_startup():
                 pass
 
 
+def preload_models():
+    preload_sparse_embedding_model()
+    preload_embedding_model()
+
+
 async def main():
     # Check qdrant is ready
     await wait_for_qdrant_startup()
 
     # Initialize collection in qdrant
-    init_db_future = init_qdrant()
+    init_db_task = asyncio.create_task(init_qdrant())
 
     # Preload embedding model while qdrant is initializing
-    preload_embedding_model()
+    preload_models()
 
     # Wait for qdrant to be initialized
-    await init_db_future
+    await init_db_task
 
     logger.debug("Checking for new files...")
 

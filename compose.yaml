@@ -46,5 +46,8 @@ services:
       # For document ingestion
       - "./qdrant_cron/ingest_docs:/app/ingest_docs:ro"
 
+      # Pre-downloaded models      
+      - "./models:/app/models"
+
 volumes:
   qdrant_storage:

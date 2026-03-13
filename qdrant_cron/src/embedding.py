@@ -1,19 +1,32 @@
 import os
-from fastembed import TextEmbedding
+from fastembed import TextEmbedding, SparseTextEmbedding
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from pathlib import Path
 
-EMBEDDING_MODEL = os.environ.get(
-    "EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
+MODELS_DIR = os.environ.get("MODELS_DIR", "/app/models")
+
+DENSE_EMBEDDING_MODEL = os.environ.get(
+    "DENSE_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
 )
 
+SPARSE_EMBEDDING_MODEL = os.environ.get(
+    "SPARSE_EMBEDDING_MODEL", "Qdrant/bm25"
+)
 
-def preload_embedding_model(embedding_model: str = EMBEDDING_MODEL):
-    print(f"Pre-loading embedding model {embedding_model}...")
-    TextEmbedding(model_name=embedding_model)
-    print("Model loaded and ready.")
+DENSE_EMBEDDING_MODEL_PATH = Path(MODELS_DIR, DENSE_EMBEDDING_MODEL)
+SPARSE_EMBEDDING_MODEL_PATH = Path(MODELS_DIR, SPARSE_EMBEDDING_MODEL)
+
+def preload_sparse_embedding_model(embedding_model: str = SPARSE_EMBEDDING_MODEL, cache_dir=MODELS_DIR, local_files_only: bool = False):
+    SparseTextEmbedding(model_name=embedding_model, cache_dir=cache_dir, local_files_only=local_files_only)
+    print(f"Loaded sparse text embedding model: {embedding_model}")
 
 
-def embed_text(text: str, embedding_model: str = EMBEDDING_MODEL):
+def preload_embedding_model(embedding_model: str = DENSE_EMBEDDING_MODEL, cache_dir: str = MODELS_DIR, local_files_only: bool = False):
+    TextEmbedding(model_name=embedding_model, cache_dir=cache_dir, local_files_only=local_files_only)
+    print(f"Loaded dense text embedding model: {embedding_model}")
+
+
+def embed_text(text: str, embedding_model: str = DENSE_EMBEDDING_MODEL):
     """
     Embed text using specified embedding model
     """
@@ -31,6 +44,7 @@ def chunk_document(text: str, chunk_size: int = 800, overlap_ratio: float = 0.1)
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
         separators=["\n\n", "\n", ". ", " ", ""],
+        strip_whitespace=True
     )
 
     chunks = splitter.split_text(text)

@@ -74,11 +74,7 @@ docker compose exec -it -w /app api-server uv run pytest -s -v -m "e2e" tests/
 
 ### Qdrant
 
-To test querying Qdrant for internal docs, ensure the qdrant_cron container is up, then run:
 
-```bash
-docker compose exec -it qdrant_cron python -m util.test_query "What is the guest subnet in Amaris.AI?"
-```
 
 ## Challenges to tackle
 
