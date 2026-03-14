@@ -531,6 +531,7 @@ Use the word count limit as a guideline on how concise you must be.
     # This will hence return up to 3 summarized documents.
     # For the above to be done, there is a need to decouple the chunking and summarization logic from the webpage_browse function,
     # such that the chunking and summarization logic and be shared for both internet webpage browsing, and also internal documents.
+    # The function would be named `chunk_and_summarize` as mentioned above.
     #
     # "hybrid" mode will be the default, and will run "internet" mode and "internal" mode logic in sequence.
     # in both modes, it should always end with updating the final summary after a round of research, like it is being done
