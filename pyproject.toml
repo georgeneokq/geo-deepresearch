@@ -36,8 +36,3 @@ markers = [
     "e2e: End-to-end tests with live LLM calls"
 ]
 testpaths = ["tests"]
-
-[tool.uv.workspace]
-members = [
-    "geo_deepresearch"
-]

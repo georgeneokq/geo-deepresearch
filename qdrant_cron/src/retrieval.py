@@ -41,7 +41,7 @@ async def get_point_by_id(
 
 
 async def query(
-    query_text: str, *, client: AsyncQdrantClient, collection_name="internal_docs"
+    query_text: str, *, fetch_limit: int = 5, client: AsyncQdrantClient, collection_name="internal_docs"
 ):
     prefetch = [
         models.Prefetch(
@@ -59,7 +59,7 @@ async def query(
     results = (
         await client.query_points(
             collection_name=collection_name,
-            limit=5,
+            limit=fetch_limit,
             prefetch=prefetch,
             query=models.FusionQuery(fusion=models.Fusion.RRF),
             with_payload=True,
@@ -163,3 +163,95 @@ async def get_enhanced_chunk_by_point_id(
     )
 
     return "".join((text_before, text, text_after))
+
+
+def _sanitize_file_path(file_name: str, base_dir: str) -> Path:
+    """
+    Sanitize file path to prevent path traversal attacks.
+
+    Args:
+        file_name: The filename provided by user
+        base_dir: The base directory that files must be within
+
+    Returns:
+        Resolved Path that is guaranteed to be within base_dir
+
+    Raises:
+        ValueError: If the resolved path is outside base_dir
+    """
+    base_path = Path(base_dir).resolve()
+    # Join and resolve to get absolute normalized path
+    file_path = (base_path / file_name).resolve()
+
+    # Check that resolved path is within base directory
+    try:
+        file_path.relative_to(base_path)
+    except ValueError:
+        raise ValueError(f"Invalid file path: access denied")
+
+    return file_path
+
+
+async def get_document_text(file_name: str) -> str:
+    """
+    Read and extract text from a document.
+
+    Args:
+        file_name: Name of the file to read (must be within DOCS_DIR)
+
+    Returns:
+        Extracted text content from the document
+
+    Raises:
+        ValueError: If file path attempts path traversal
+        FileNotFoundError: If file does not exist
+    """
+    # Sanitize path to prevent traversal attacks
+    file_path = _sanitize_file_path(file_name, DOCS_DIR)
+
+    # Read file
+    with open(file_path, "rb") as f:
+        file_bytes = f.read()
+
+    # Extract and return text
+    return extract_text(file_bytes=file_bytes)
+
+
+async def get_document_text_by_point_id(
+    point_id: str,
+    *,
+    client: AsyncQdrantClient,
+    collection_name: str = "internal_docs",
+) -> str:
+    """
+    Read and extract text from a document using a Qdrant point ID.
+
+    The filename is retrieved from the point's payload, ensuring the file
+    reference comes from indexed data rather than user input.
+
+    Args:
+        point_id: Qdrant point ID
+        client: AsyncQdrantClient instance
+        collection_name: Qdrant collection name
+
+    Returns:
+        Extracted text content from the document
+
+    Raises:
+        RuntimeError: If point not found, payload missing, or file not found
+        ValueError: If file path attempts path traversal
+    """
+    # Retrieve point to get filename from payload
+    point = await get_point_by_id(
+        point_id, client=client, collection_name=collection_name
+    )
+
+    if not point.payload:
+        raise RuntimeError("Point has empty payload")
+
+    file_name = point.payload.get("file_name")
+    if not file_name:
+        raise RuntimeError("Point payload missing 'file_name'")
+
+    # Read document using sanitized filename from payload
+    return await get_document_text(file_name)

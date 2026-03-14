@@ -42,12 +42,31 @@ services:
     volumes:
       # Hot reload source code and tests
       - "./qdrant_cron/src:/app/src"
-
       # For document ingestion
       - "./qdrant_cron/ingest_docs:/app/ingest_docs:ro"
-
-      # Pre-downloaded models      
+      # Models cache dir      
       - "./models:/app/models"
+
+  qdrant_api_server:
+    build:
+      context: ./qdrant_cron
+      dockerfile: dev.Dockerfile
+    restart: unless-stopped
+    env_file:
+      - qdrant_cron/.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Hot reload source code
+      - "./qdrant_cron/src:/app/src"
+      # For reading documents
+      - "./qdrant_cron/ingest_docs:/app/ingest_docs:ro"
+      # Models cache dir      
+      - "./models:/app/models"
+    ports:
+      - "9101:80"
+    entrypoint: ["uvicorn", "server.api_server:app", "--host", "0.0.0.0", "--port", "80", "--reload"]
+
 
 volumes:
   qdrant_storage:

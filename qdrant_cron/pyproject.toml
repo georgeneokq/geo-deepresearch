@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "fastapi>=0.135.1",
     "fastembed>=0.7.4",
     "langchain-text-splitters>=1.1.1",
     "openai>=2.26.0",
@@ -12,4 +13,5 @@ dependencies = [
     "python-docx>=1.2.0",
     "python-magic>=0.4.27",
     "qdrant-client>=1.17.0",
+    "uvicorn>=0.41.0",
 ]
