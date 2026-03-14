@@ -515,6 +515,26 @@ Use the word count limit as a guideline on how concise you must be.
 
         return path
 
+    # TODO:
+    # Add parameter for "mode".
+    # "mode" parameter would either be "internet", "internal", or "hybrid".
+    # "internet" mode will run the logic currently used in this function.
+    # "internal" mode will use the Qdrant API server, which is started as another Docker service
+    # at http://qdrant_api_server (to be configured as default, but read from os.environ.get to get the URL)
+    # then the current "web search" llm equivalent will query qdrant just like it would do on web search.
+    # It will then reduce the list of returned results with the following method:
+    # Take each list_item["score"], group by list_item["file_hash"] and create a mapping of point id to total score.
+    # The point id to be used as key will be the first point id for a certain file name, this is important as
+    # multiple points may refer to a chunk of the same file.
+    # After the mapping is created, sort them by total score in descending order.
+    # Then turn it into a list of point ids using only the top 3 scored results, that will be used in chunk_and_summarize function.
+    # This will hence return up to 3 summarized documents.
+    # For the above to be done, there is a need to decouple the chunking and summarization logic from the webpage_browse function,
+    # such that the chunking and summarization logic and be shared for both internet webpage browsing, and also internal documents.
+    #
+    # "hybrid" mode will be the default, and will run "internet" mode and "internal" mode logic in sequence.
+    # in both modes, it should always end with updating the final summary after a round of research, like it is being done
+    # in the currently implement "internet" mode.
     async def run(self, research_topic: str, min_sources: Optional[int] = None):
         """
         Contains the main deep research logic.
