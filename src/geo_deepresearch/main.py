@@ -27,6 +27,7 @@ from geo_deepresearch.util.llm import openai_default_client, openai_default_mode
 from geo_deepresearch.decompose import decompose_query
 from geo_deepresearch.tokenize import preload_tokenizer
 from geo_deepresearch.summarize import summarize_for_final_report
+from geo_deepresearch.subagents.agent_runner import ResearchMode
 
 setup_logging()
 
@@ -35,6 +36,7 @@ logger = get_logger()
 
 class ResearchRequestBody(BaseModel):
     query: str
+    mode: str = "hybrid"  # Options: "internet", "internal", "hybrid"
 
 
 @asynccontextmanager
@@ -50,6 +52,16 @@ app = FastAPI(lifespan=lifespan)
 @observe(name="Research")
 async def research(body: ResearchRequestBody):
     query = body.query
+    mode = body.mode
+
+    # Validate and convert mode string to ResearchMode enum
+    try:
+        research_mode = ResearchMode(mode.lower())
+    except ValueError:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"Invalid mode '{mode}'. Must be one of: internet, internal, hybrid"}
+        )
 
     agents: list[AgentRunner] = []
 
@@ -60,12 +72,12 @@ async def research(body: ResearchRequestBody):
 
     # Spawn the agents here
     for subquery in subqueries:
-        agents.append(create_research_subagent(expertise=subquery.expertise))
-    
+        agents.append(create_research_subagent(expertise=subquery.expertise, mode=research_mode))
+
     # Run the agents. Filter out ones that did not succeed.
     queries = [subquery.query for subquery in subqueries]
     results = await run_agents(queries, agents)
-    
+
     subqueries_str = [subquery.query for subquery in subqueries]
     final_summary = await summarize_for_final_report(query, subqueries_str, results)
 

@@ -6,7 +6,7 @@ from fastapi import FastAPI, Query, HTTPException
 from qdrant_client import AsyncQdrantClient
 
 from util.logger import setup_logging, get_logger
-from retrieval import query as query_qdrant, get_document_text_by_point_id
+from retrieval import query as query_qdrant, get_document_text_by_point_id, get_enhanced_chunk_by_point_id
 
 # Logger setup
 API_SERVER_LOGGER_NAME = "qdrant_api"
@@ -69,6 +69,30 @@ async def get_document(point_id: str) -> dict[str, str]:
     client: AsyncQdrantClient = app.state.qdrant_client
     try:
         text = await get_document_text_by_point_id(point_id, client=client)
+        return {"point_id": point_id, "content": text}
+    except (RuntimeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+
+@app.get("/documents/{point_id}/surrounding")
+async def get_surrounding_chunk(
+    point_id: str,
+    max_chars: int = Query(default=500, ge=100, le=10000, description="Max surrounding characters"),
+) -> dict[str, str]:
+    """Get surrounding text chunk for a Qdrant point ID.
+    
+    Returns the text chunk at the point ID plus surrounding context 
+    (before and after) up to max_chars characters on each side.
+    """
+    client: AsyncQdrantClient = app.state.qdrant_client
+    try:
+        text = await get_enhanced_chunk_by_point_id(
+            point_id, 
+            max_surrounding_character_count=max_chars,
+            client=client
+        )
         return {"point_id": point_id, "content": text}
     except (RuntimeError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))

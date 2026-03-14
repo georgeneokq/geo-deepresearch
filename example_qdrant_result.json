@@ -1,0 +1,122 @@
+[
+    {
+        "id": "50ac1288-c74e-5efc-8a33-46f3c67042e6",
+        "score": 0.8333334,
+        "payload": {
+            "file_name": "APT42s recent activity.pdf",
+            "file_hash": "caee124c5ba649cc26ecbec42097dcfa1e2bae32d6fa415f48cfa3d09b8d2488",
+            "chunk_index": 0,
+            "substring_index": 0,
+            "label": "APT42 Social Engineering and Custom Backdoor Tactics (NICECURL, TAMECAT)",
+            "text": "ADVISORY FOR ICM SECTORS \n \nAPT42’s recent activity \nOriginal report published on: May 02, 2024[1] \n \nExecutive Summary \n \nGoogle Cloud unveiled tactics belonging to an Iranian state-sponsored cyber espionage group, APT42, \nwhich employed social engineering techniques to target Western and Middle Eastern media companies, \nnon-governmental organisations, academia, legal services and activist groups.  \n \nRecent malware operations by APT42 involve custom backdoors such as NICECURL and TAMECAT, typically \ndelivered via spear phishing. These backdoors grant initial access and act as interfaces for command \nexecution or launch points for further malware development.  \n \nBackground \n "
+        }
+    },
+    {
+        "id": "0b555038-7615-55f0-902a-f9a970a1ec8a",
+        "score": 0.8333334,
+        "payload": {
+            "file_name": "APT42s recent activity.pdf",
+            "file_hash": "caee124c5ba649cc26ecbec42097dcfa1e2bae32d6fa415f48cfa3d09b8d2488",
+            "chunk_index": 1,
+            "substring_index": 670,
+            "label": "APT42 Backdoors NICECURL TAMECAT",
+            "text": "\n \nBackground \n \nSince 2021, APT42 has impersonated well-known news outlets and employed typo squatting to create web \ndomains that closely resemble legitimate ones with minor alterations. The group has remained relatively \nfocused on intelligence gathering, using these techniques to obtain credentials and strategic information. \nThey built trust by impersonating journalists and event organisers, sending realistic conference invitations \nor documents to gather credentials and access cloud environments. They then discreetly exfiltrate \nimportant data, using built-in features and open-source tools to evade detection. \n \nIt is well documented that APT42 uses the following custom backdoors: \n "
+        }
+    },
+    {
+        "id": "5df3bd15-e555-5e86-b9b0-b7e217527c42",
+        "score": 0.45,
+        "payload": {
+            "file_name": "APT42s recent activity.pdf",
+            "file_hash": "caee124c5ba649cc26ecbec42097dcfa1e2bae32d6fa415f48cfa3d09b8d2488",
+            "chunk_index": 13,
+            "substring_index": 8293,
+            "label": "APT42 T1005 T1041 Collection and Exfiltration Over C2",
+            "text": "\nCollection \nT1005 \nData from Local System \nExfiltration \nT1041 \nExfiltration Over C2 Channel \n \nReferences \n \n1. ^ “UNCHARMED: UNTANGLING IRAN'S APT42 OPERATIONS” \n \n \n"
+        }
+    },
+    {
+        "id": "ea55126f-e80f-5a22-b02f-868654a9b5c8",
+        "score": 0.36666667,
+        "payload": {
+            "file_name": "APT42s recent activity.pdf",
+            "file_hash": "caee124c5ba649cc26ecbec42097dcfa1e2bae32d6fa415f48cfa3d09b8d2488",
+            "chunk_index": 3,
+            "substring_index": 1983,
+            "label": "APT42 TAMECAT MITRE ATT&CK Detection and Mitigation",
+            "text": "\nvia HTTP, and expects data from the C2 to beBase64 encoded. Mandiant previously observed \nTAMECAT used in a large-scale APT42 spear-phishing campaign targeting individuals or entities \nemployed by or affiliated with NGOs, government, or intergovernmental organisations around the \nworld. \n \n \nDetection and Mitigation \n \nIMDA recommends organisations to perform continual testing and validating of existing security controls \nto ensure detection and prevention against the MITRE ATT&CK techniques identified in this advisory: \n \n• Refer to the MITRE ATT&CK techniques in this advisory: \no Create, test and validate detection rules against the threat behaviours.  "
+        }
+    },
+    {
+        "id": "e0c6dc6f-df3c-550d-9680-fc70be62d39a",
+        "score": 0.3611111,
+        "payload": {
+            "file_name": "APT42s recent activity.pdf",
+            "file_hash": "caee124c5ba649cc26ecbec42097dcfa1e2bae32d6fa415f48cfa3d09b8d2488",
+            "chunk_index": 4,
+            "substring_index": 2647,
+            "label": "APT42 Defensive Measures and MITRE ATT&CK Mitigation",
+            "text": "\no Validate and deny/disable processes, ports and protocols that have no business need. \n• Deploy a multi-layered protection solution that includes email sandboxing, domain URL filtering, \nendpoint detection and response protection, and network security measures to detect and block \nphishing attempts and other threats at various entry points. \n• Deploy data loss prevention solution to monitor that data remains within the enterprise or \napproved networks. \n• Be alert for suspicious emails, particularly those containing phishing attempts or malicious \nattachment and educate employees on social engineering tactics used by APTs. \n "
+        }
+    },
+    {
+        "id": "2a522f21-62b2-59ca-a937-6e40e5731e3f",
+        "score": 0.25,
+        "payload": {
+            "file_name": "APT42s recent activity.pdf",
+            "file_hash": "caee124c5ba649cc26ecbec42097dcfa1e2bae32d6fa415f48cfa3d09b8d2488",
+            "chunk_index": 5,
+            "substring_index": 3280,
+            "label": "APT42 Indicators of Compromise (IoC) SHA256 Hashes",
+            "text": "\n \nIMDA encourages organisations to conduct thorough analysis to identify potential risks and assess their \npotential impact prior to deploying defensive measures. \n \nIndicators of Compromise[1] \n \nSHA256 Hash \nDescription \ne0ba0cedd8a8624c75af29965e5fa7ab754fc0fcddbb330bb548dab4f2be333f \nNICECURL \n0e51029ba28243b0a6a071713c17357a8eb024aa4298d1ccc9e2c4ac8916df4d \n3226b3e7d7fdaebfe7d7f06bdaf0cad08ea9792cd32843d01e6023f67cd0c889 \n3c74109005111688341f4e5fcba42be9c21baa4465f5f84a5a342708732ac0ff \ndbdb14e37fc4412711a1e5e37e609e33410de31de13911aee99ab473753baa4a \n07384ab4488ea795affc923851e00ebc2ead3f01b57be6bf8358d7659e9ee407 \n5404e39f2f175a0fc993513ee52be3679a64c69c79e32caa656fbb7645965422 "
+        }
+    },
+    {
+        "id": "4908c072-a902-5c24-90ba-13864bb64be2",
+        "score": 0.21978024,
+        "payload": {
+            "file_name": "APT42s recent activity.pdf",
+            "file_hash": "caee124c5ba649cc26ecbec42097dcfa1e2bae32d6fa415f48cfa3d09b8d2488",
+            "chunk_index": 6,
+            "substring_index": 3909,
+            "label": "APT42 TAMECAT Domain Enumeration and Phishing List",
+            "text": "\n5404e39f2f175a0fc993513ee52be3679a64c69c79e32caa656fbb7645965422 \nTAMECAT \nbd1f0fb085c486e97d82b6e8acb3977497c59c3ac79f973f96c395e7f0ca97f8 \n156ac9685acb6696d8d7f64205e20ecf7a87dad304b8441449f0060ed175938b \nc99cc10f15f655f36314e54f7013a0bc5df85f4d6ff7f35b14a446315835d334 \n \nMD5 Hash \nDescription \n9c5337e0b1aef2657948fd5e82bdb4c3 \nTAMECAT \n \nDomain \nDescription \nazadlliq[.]info \nPosing as News Outlets \nbusinesslnsider[.]org \necomonist[.]org \neocnomist[.]com \nforeiqnaffairs[.]com \nforieqnaffairs[.]com \nforeiqnaffairs[.]org \nisraelhayum[.]com \njpost[.]press \njpostpress[.]com \nkhaleejtimes[.]org \nkhalejtimes[.]org \nmaariv[.]net \nthemedealine[.]org \ntimesfisrael[.]com \nvanityfaire[.]org "
+        }
+    },
+    {
+        "id": "44fba764-c5bc-5165-983e-eff899b8b29b",
+        "score": 0.2159091,
+        "payload": {
+            "file_name": "APT42s recent activity.pdf",
+            "file_hash": "caee124c5ba649cc26ecbec42097dcfa1e2bae32d6fa415f48cfa3d09b8d2488",
+            "chunk_index": 7,
+            "substring_index": 4542,
+            "label": "APT42 Phishing Domains: Impersonating Legitimate Services and Generic Login Portals",
+            "text": "\nthemedealine[.]org \ntimesfisrael[.]com \nvanityfaire[.]org \nwashinqtonpost[.]press \nynetnews[.]press \naccount-signin[.]com \nPosing as Legitimate \nServices \nacconut-signin[.]com \naccounts-mails[.]com \ncoordinate[.]icu \ndloffice[.]top \ndloffice[.]buzz \nmyaccount-signin[.]com \nsignin-acconut[.]com \nsignin-accounts[.]com \nsignin-mail[.]com \nsignin-mails[.]com \nsignin-myaccounts[.]com \nsupport-account[.]xyz \naccredit-validity[.]online \nactivity-permission[.]online \nPosing as Generic Login \nServices \nadmin-stable-right[.]top \nadmiscion[.]online \nadmit-roar-frame[.]top \nadvission[.]online \naffect-fist-ton[.]online \navid-striking-eagerness[.]online \nbeaviews[.]online \nbesvision[.]top "
+        }
+    },
+    {
+        "id": "fb808f0a-c963-5837-a9f1-e1dd7695cf75",
+        "score": 0.21111111,
+        "payload": {
+            "file_name": "APT42s recent activity.pdf",
+            "file_hash": "caee124c5ba649cc26ecbec42097dcfa1e2bae32d6fa415f48cfa3d09b8d2488",
+            "chunk_index": 12,
+            "substring_index": 7668,
+            "label": "APT42 MITRE ATT&CK Tactics and Techniques Matrix",
+            "text": "\nFile Sharing Services \ng-online[.]org \nMiscellaneous \nonline-access[.]live \nyouronlineregister[.]com \n \nMITRE ATT&CK Tactics and Techniques \n \nTactic \nTechnique ID \nTechnique Name \nInitial Access \nT1566.001 \nPhishing: Spearphishing Attachment \nT1566.002 \nPhishing: Spearphishing Link \nExecution \nT1059.001 \nCommand and Scripting Interpreter: PowerShell \nT1059.007 \nCommand and Scripting Interpreter: JavaScript \nPersistence \nT1098.005 \nAccount Manipulation: Device Registration \nDefense Evasion \nT1027 \nObfuscated Files or Information \nT1070 \nIndicator Removal: File Deletion \nDiscovery \nT1083 \nFile and Directory Discovery \nCollection \nT1005 \nData from Local System \nExfiltration \nT1041 "
+        }
+    },
+    {
+        "id": "e91604e9-6ab0-51be-8f59-6fd2fe6903f5",
+        "score": 0.20952383,
+        "payload": {
+            "file_name": "APT42s recent activity.pdf",
+            "file_hash": "caee124c5ba649cc26ecbec42097dcfa1e2bae32d6fa415f48cfa3d09b8d2488",
+            "chunk_index": 9,
+            "substring_index": 5773,
+            "label": "APT42 Malware Domain Generation: gview, home-continue, identifier-direction, and paneling-viewing domains",
+            "text": "\ngview[.]site \nhome-continue[.]online \nhome-proceed[.]online \nidentifier-direction[.]site \nindication-service[.]online \njoin-paneling[.]online \nksview[.]top \nlast-check-leave[.]buzz \nlive-project-online[.]live \nlive-projects-online[.]top \nloriginal[.]online \nmail-roundcube[.]site \nmeeting-online[.]site \nmterview[.]site \nnterview[.]site \nonline-processing[.]online \nonline-video-services[.]site \novcloud[.]online \npanel-check-short[.]live \npanel-check-short[.]live \npanel-live-check[.]online \npanel-short-check[.]live \npanel-view-short[.]online \npanel-view[.]live \npanel-view[.]online \npanel-views-cheking[.]live \npanelchecking[.]live \npaneling-viewing[.]live \npanels-views-ckeck[.]live "
+        }
+    }
+]

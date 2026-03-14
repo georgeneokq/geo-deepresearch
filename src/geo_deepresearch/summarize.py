@@ -52,6 +52,14 @@ You are a summarizer agent for the following topic: \"{main_query}\"
 The user will send you the main report, followed by the sub-report. Merge the sub-report into the main report.
 Re-index all citations. The final output must have a single, continuous numerical reference list (e.g., [1] through [N]) that matches the provided reports.
 Ensure the statements are linked to the new citation numbers correctly.
+
+IMPORTANT: You must be completely grounded in the provided source material.
+- Do NOT add any information that is not explicitly present in the provided sub-reports.
+- Do NOT make assumptions, inferences, or connections that are not directly stated in the sources.
+- Do NOT use any external knowledge or training data to supplement the provided information.
+- Do NOT associate entities, names, or aliases that are not explicitly mentioned in the sub-reports (e.g., do not add alternative APT group names unless the source explicitly states the equivalence).
+- Every factual statement must be supported by a citation from the provided sub-reports.
+- When merging, only combine what is directly stated - do not elaborate beyond what the sources contain.
 """.strip()
             main_report_message = f"{main_report}"
             sub_report_message = f"## {subquery}\n\n{summary}"
