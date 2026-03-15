@@ -1114,6 +1114,7 @@ Use the word count limit as a guideline on how concise you must be.
                 f"Unique file hashes retrieved: {len(retrieved_file_hashes)}"
             )
 
+    # TODO: Test the internal research stops after no more new docs received
     async def run(self, research_topic: str, min_sources: Optional[int] = None):
         """
         Contains the main deep research logic.

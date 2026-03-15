@@ -35,7 +35,7 @@ async def call_llm(
     force_tool: Optional[Callable] = None,
     output_schema: Optional[type[T]] = None,
     max_tokens: Optional[int] = None,
-    temperature: float = 0.6,
+    temperature: Optional[float] = None,
 ) -> Union[ParsedChatCompletionMessage[T], ParsedChatCompletionMessage[str]]:
     """
     Standardized LLM call that introspects Python functions on the fly.
@@ -64,7 +64,10 @@ async def call_llm(
         *user_messages
     ]
 
-    kwargs = {"model": model, "messages": messages, "temperature": temperature}
+    kwargs = {"model": model, "messages": messages}
+
+    if temperature is not None:
+        kwargs["temperature"] = temperature
 
     if max_tokens:
         kwargs["max_tokens"] = max_tokens
