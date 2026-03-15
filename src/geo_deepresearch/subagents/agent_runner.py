@@ -80,12 +80,16 @@ Avoid documents that have already been cited.
 {GROUNDING_INSTRUCTION}
 """.strip()
 
-SUMMARY_AGENT_INSTRUCTIONS = f"""
-You are a summarizer agent.
-You will be given a research topic, along with a summary of the findings so far.
-Given the web search and webpage browsing tool results, add to the existing citation list and summary using information from the previous tool results.
-You should only extract out information relevant to the research topic for updating the summary.
+REPORT_AGENT_INSTRUCTIONS = f"""
+You are a report writer agent.
+You will be given a research topic, along with the report so far.
+Given the web search and webpage browsing tool results, add to the existing citation list and report using information from the previous tool results.
+You should only extract out information relevant to the research topic for updating the report.
+When reading the tool results, note that they are summaries and may include notes on truncated data.
+As a report writer, you should exclude such information.
 Deduplicate or merge information as necessary, but ensure that every source, even if not referenced, is included in the citation list.
+Write your report in well structured markdown, suitable for conversion into a Word document.
+Ensure to include a title for the report.
 All statements in your answer must be linked to a citation.
 Ensure to keep all previously linked citations and references list.
 
@@ -951,7 +955,7 @@ Use the word count limit as a guideline on how concise you must be.
             # Summary update
             summary_prompt = f"Research topic: {self.research_topic}\n\nCurrent summary: {self.summary}\n\nNewly browsed contents: {json.dumps(browsed_contents)}"
             msg = await call_llm(
-                self.client, self.model, SUMMARY_AGENT_INSTRUCTIONS, summary_prompt
+                self.client, self.model, REPORT_AGENT_INSTRUCTIONS, summary_prompt
             )
             logger.debug(f"Turn {self.num_rounds} Summary Prompt:")
             self.summary = msg.content or self.summary
@@ -1101,7 +1105,7 @@ Use the word count limit as a guideline on how concise you must be.
             # Summary update - include file names for citation formatting
             summary_prompt = f"Research topic: {self.research_topic}\n\nCurrent summary: {self.summary}\n\nNewly retrieved internal documents: {browsed_contents}\n\nRetrieved file names: {retrieved_file_names}"
             msg = await call_llm(
-                self.client, self.model, SUMMARY_AGENT_INSTRUCTIONS, summary_prompt
+                self.client, self.model, REPORT_AGENT_INSTRUCTIONS, summary_prompt
             )
             logger.debug(f"Turn {self.num_rounds} Summary Prompt:")
             self.summary = msg.content or self.summary
@@ -1114,7 +1118,6 @@ Use the word count limit as a guideline on how concise you must be.
                 f"Unique file hashes retrieved: {len(retrieved_file_hashes)}"
             )
 
-    # TODO: Test the internal research stops after no more new docs received
     async def run(self, research_topic: str, min_sources: Optional[int] = None):
         """
         Contains the main deep research logic.
