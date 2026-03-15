@@ -1,3 +1,4 @@
+from typing import Optional
 import json
 import os
 from openai import AsyncOpenAI
@@ -9,6 +10,7 @@ logger = get_logger()
 LABELLER_INSTRUCTIONS = """
 You will be prepending a title to a text chunk, to optimize it for vector and keyword search.
 Based on the document title and the chunk's surrounding text, output an appropriate title to prepend to it.
+You may be given previous labels as well, in order of earliest to latest. Use those to determine if the current chunk is a continuation of previous chunks.
 Include technical keywords in the label.
 If the surrounding text does not provide enough context to give a specific label for that chunk, you may output a more generic label based on the document title.
 
@@ -23,11 +25,11 @@ openai_client = AsyncOpenAI(
 openai_model = os.environ.get("CHUNK_LABELLER_MODEL", "qwen/qwen3.5-9b")
 
 
-
-
-async def get_chunk_label(text: str, full_document_content: str, document_title: str):
+async def get_chunk_label(text: str, full_document_content: str, document_title: str, previous_labels: Optional[list[str]] = None):
     """
     Labels a chunk of text based on title and surrounding text in the document.
+    To prevent loss of context (e.g. middle of a table without headers), we provide the LLM
+    a list of previous labels.
     Expects the text to be an exact substring, so as to extract the surrounding text.
     """
     try:
@@ -41,7 +43,7 @@ async def get_chunk_label(text: str, full_document_content: str, document_title:
 
     # Max surrounding character count, applied for both before and after
     # Total is hence x2 of the value specified.
-    max_surrounding_character_count = 200
+    max_surrounding_character_count = 500
     text_before = full_document_content[
         max(0, substring_index - max_surrounding_character_count) : substring_index
     ]
@@ -58,6 +60,13 @@ async def get_chunk_label(text: str, full_document_content: str, document_title:
 - Text Chunk (label this): \"{text}\"
 - Text After: \"{text_after}\"
 """.strip()
+
+    # Provide previous labels as context
+    if previous_labels and len(previous_labels):
+        user_prompt = f"Previous labels: {json.dumps(previous_labels)}\n" + user_prompt
+ 
+    logger.debug("User prompt for labeller:")
+    logger.debug(user_prompt)
     result = await call_llm(
         openai_client, openai_model, LABELLER_INSTRUCTIONS, user_prompt
     )

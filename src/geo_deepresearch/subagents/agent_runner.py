@@ -54,7 +54,7 @@ IMPORTANT: You must be completely grounded in the provided source material.
 WEB_SEARCH_INSTRUCTIONS = f"""
 Given web search tool, perform web search to find information on the given research topic.
 As it uses Google search under the hood, you may use advanced operators like "site:", "intitle", etc. where necessary.
-The user will provide a list of used queries, avoid repeated searches.
+The user will provide a list of used queries, avoid repeating same queries, at least paraphrase. (e.g. \"IOCs\" can be paraphrased to \"Domains\", \"URLs\")
 
 {GROUNDING_INSTRUCTION}
 """.strip()
@@ -68,7 +68,7 @@ The user may provide a list of existing citations, avoid browsing those websites
 
 INTERNAL_SEARCH_INSTRUCTIONS = f"""
 Given a research topic, query the internal document store (Qdrant) to find relevant documents.
-The user will provide a list of used queries, avoid repeated searches.
+The user will provide a list of used queries, avoid repeating same queries, at least paraphrase. (e.g. \"IOCs\" can be paraphrased to \"Domains\", \"URLs\")
 
 {GROUNDING_INSTRUCTION}
 """.strip()
@@ -622,6 +622,7 @@ Use the word count limit as a guideline on how concise you must be.
                     "raw_response": response.text,
                 }
         except Exception as e:
+            traceback.print_exc()
             logger.error(f"Qdrant API error: {str(e)}")
             return {"success": False, "error": str(e)}
 

@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Optional
 import os
-from extract import extract_text
+from extract import document_processor
 from embedding import DENSE_EMBEDDING_MODEL, SPARSE_EMBEDDING_MODEL, preload_embedding_model, chunk_document, preload_sparse_embedding_model
 from label import get_chunk_label
 from util.logger import get_logger, setup_logging
@@ -119,7 +119,8 @@ async def ingest_file(
             file_bytes = f.read()
 
         # Extract text for different types of documents
-        contents = extract_text(file_path=file_path)
+        contents = await document_processor.extract_markdown(file_path)
+        print(contents)
 
         # File hash as secondary unique identifier
         hash = file_hash or generate_file_sha256(file_bytes=file_bytes)

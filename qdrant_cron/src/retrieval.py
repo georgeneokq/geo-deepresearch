@@ -7,7 +7,7 @@ from embedding import (
     DENSE_EMBEDDING_MODEL,
     SPARSE_EMBEDDING_MODEL,
 )
-from extract import extract_text
+from extract import document_processor
 from util.crypto import generate_file_sha256
 
 logger = get_logger()
@@ -137,7 +137,7 @@ async def get_surrounding_text_by_point_id(
 
     chunk_text = point.payload["text"]
     substring_index = point.payload["substring_index"]
-    full_text = extract_text(file_bytes=file_bytes)
+    full_text = await document_processor.extract_markdown(file_path)
 
     text_before, text, text_after = get_surrounding_text(
         chunk_text,
@@ -209,12 +209,8 @@ async def get_document_text(file_name: str) -> str:
     # Sanitize path to prevent traversal attacks
     file_path = _sanitize_file_path(file_name, DOCS_DIR)
 
-    # Read file
-    with open(file_path, "rb") as f:
-        file_bytes = f.read()
-
     # Extract and return text
-    return extract_text(file_bytes=file_bytes)
+    return await document_processor.extract_markdown(file_path)
 
 
 async def get_document_text_by_point_id(
