@@ -8,10 +8,12 @@ import json
 import logging
 import os
 import httpx
+import random
 from collections import deque
 from pathlib import Path
 from typing import Optional, Any, Dict
 from openai import AsyncOpenAI
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from geo_deepresearch.tokenize import count_tokens
 from geo_deepresearch.util.tools import function_to_schema
 from geo_deepresearch.config import config
@@ -55,6 +57,7 @@ WEB_SEARCH_INSTRUCTIONS = f"""
 Given web search tool, perform web search to find information on the given research topic.
 As it uses Google search under the hood, you may use advanced operators like "site:", "intitle", etc. where necessary.
 The user will provide a list of used queries, avoid repeating same queries, at least paraphrase. (e.g. \"IOCs\" can be paraphrased to \"Domains\", \"URLs\")
+Keep your query short to return relevant search results from Google.
 
 {GROUNDING_INSTRUCTION}
 """.strip()
@@ -350,39 +353,36 @@ class AgentRunner(abc.ABC):
                 {"error": f"An unexpected error occurred: {str(e)}"}, indent=2
             )
 
-    def _semantic_chunker(self, text, max_tokens=7000, overlap=500):
+
+    def _semantic_chunker(self, text: str, max_tokens: int = 7000, overlap: int = 500):
         """
-        Splits text into chunks at natural boundaries with overlap to preserve context.
+        Splits text into chunks based on token count using structural boundaries.
         """
-        chunks = []
-        words = text.split()
+        # Use your count_token function as the length metric.
+        # This makes the splitter evaluate chunk_size in terms of tokens.
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=max_tokens,
+            chunk_overlap=overlap,
+            length_function=count_tokens,
+            separators=[
+                "\n\n# ", "\n\n## ", "\n\n### ", 
+                "\n\n",   # Prioritize paragraph breaks
+                "\n|",    # Keep table rows together
+                "\n",      # Line breaks
+                ". ",      # Sentences
+                " ", ""
+            ],
+            strip_whitespace=False,
+        )
 
-        # Approximate word counts (Words = Tokens / 1.3)
-        words_per_chunk = int(max_tokens / 1.3)
-        overlap_words = int(overlap / 1.3)
-
-        start = 0
-        while start < len(words):
-            end = start + words_per_chunk
-            chunk_words = words[start:end]
-
-            # Join and return the chunk
-            chunks.append(" ".join(chunk_words))
-
-            # Slide forward, but move back by the overlap amount
-            start += words_per_chunk - overlap_words
-
-            # Safety break to avoid infinite loops
-            if start >= len(words) or words_per_chunk <= overlap_words:
-                break
-
+        # split_text returns a list of strings
+        chunks = text_splitter.split_text(text)
+        
         return chunks
 
     def _get_jina_headers(self) -> dict[str, str]:
         headers = {
             "Accept": "application/json",
-            "X-With-Links-Summary": "true",
-            "X-With-Images-Summary": "true",
         }
         if self.jina_api_key:
             headers["Authorization"] = f"Bearer {self.jina_api_key}"
@@ -391,6 +391,7 @@ class AgentRunner(abc.ABC):
 
         return headers
 
+    # TODO: TEST RUN
     async def webpage_browse(self, urls: list[str]):
         """
         Browse specified webpages.
@@ -429,7 +430,8 @@ class AgentRunner(abc.ABC):
                 # If that agent fails to populate the cache, perhaps due to timeout,
                 # raw_webpage_content will be empty after lock is released here.
                 # To handle this, we do a retry loop, and give up after specified max retries to prevent deadlocks.
-                max_retries = 2
+                max_retries = 3
+                last_error: Optional[Exception] = None
                 for i in range(max_retries):
                     if raw_webpage_content:
                         # If cache hit, we bypass the browsing
@@ -437,46 +439,61 @@ class AgentRunner(abc.ABC):
 
                     # If cache miss / previous browse failed, attempt to browse the url.
                     # Ensure to lock so that other agents don't do double work
-                    logger.debug(f"Acquiring lock for {url}")
-                    async with self.browse_manager.acquire_browse_lock(url):
-                        logger.debug(f"Acquired lock for {url}")
-                        async with httpx.AsyncClient() as client:
-                            response = await client.get(
-                                full_url,
-                                headers=self._get_jina_headers(),
-                                timeout=self.jina_timeout,
+                    logger.debug(f"Acquiring lock for {url} (attempt {i + 1}/{max_retries})")
+                    try:
+                        async with self.browse_manager.acquire_browse_lock(url):
+                            logger.debug(f"Acquired lock for {url}")
+                            async with httpx.AsyncClient() as client:
+                                logger.debug(f"Making request to {full_url}...")
+                                response = await client.get(
+                                    full_url,
+                                    headers=self._get_jina_headers(),
+                                    timeout=self.jina_timeout,
+                                )
+
+                            response.raise_for_status()
+                            jina_response = response.json()
+                            # Jina JSON structure usually has content in 'data', 'content', or 'markdown'
+                            jina_data = jina_response.get("data", jina_response)
+
+                            raw_webpage_content = jina_data.get("content", "")
+                            logger.debug(f"Successfully browsed {url}")
+                            logger.debug(
+                                f"Jina response:\n{json.dumps(jina_data, indent=2)}"
+                            )
+                            logger.debug(
+                                f"Jina extracted content: {raw_webpage_content[:200]}"
                             )
 
-                        response.raise_for_status()
-                        jina_response = response.json()
-                        # Jina JSON structure usually has content in 'data', 'content', or 'markdown'
-                        jina_data = jina_response.get("data", jina_response)
+                            # Add to cache
+                            self.browse_manager.add_to_cache(url, raw_webpage_content)
 
-                        raw_webpage_content = jina_data.get("content", "")
-                        logger.debug(f"Successfully browsed {url}")
-                        logger.debug(
-                            f"Jina response:\n{json.dumps(jina_data, indent=2)}"
-                        )
-                        logger.debug(
-                            f"Jina extracted content: {raw_webpage_content[:200]}"
-                        )
-
-                        # Add to cache
-                        self.browse_manager.add_to_cache(url, raw_webpage_content)
-
-                        # Successfully retrieved webpage contents and added to cache,
-                        # break out of loop and release lock
-                        break
+                            # Successfully retrieved webpage contents and added to cache,
+                            # break out of loop and release lock
+                            break
+                    except (httpx.TimeoutException, httpx.HTTPStatusError, httpx.RequestError) as e:
+                        last_error = e
+                        logger.warning(f"Attempt {i + 1}/{max_retries} failed for {url}: {type(e).__name__}: {e}")
+                        if i < max_retries - 1:
+                            # Exponential backoff with jitter
+                            base_delay = 5.0  # Base delay in seconds
+                            exponential_delay = base_delay * (2 ** i)  # 1s, 2s, 4s, ...
+                            jitter = random.uniform(0, exponential_delay * 0.5)  # Add up to 50% jitter
+                            delay = exponential_delay + jitter
+                            logger.debug(f"Retrying {url} in {delay:.2f}s...")
+                            await asyncio.sleep(delay)
+                        continue
 
                 if not raw_webpage_content:
                     # Max retries hit and still failed. Give up on this source
+                    error_msg = str(last_error) if last_error else "Unknown error"
                     raise RuntimeError(
-                        f"Failed to browse after {max_retries} attempts: {url}"
+                        f"Failed to browse after {max_retries} attempts: {url} - {error_msg}"
                     )
 
                 # Use shared chunking and summarization logic
                 summarized = await self.chunk_and_summarize(
-                    raw_webpage_content, url, recommended_max_tokens=1000
+                    raw_webpage_content
                 )
 
                 self.source_list.append(url)
@@ -508,11 +525,12 @@ class AgentRunner(abc.ABC):
 Given the following research topic and webpage contents, extract out only the information relevant to the query.
 The webpage contents may be truncated. If it seems truncated, summarize while noting a possible lack of context due truncation.
 Aim to be concise to save tokens, but do not skip information that has any relevance to the research topic.
-Ssummarize in a way that the agent receiving your summary can understand it without extra context.
+Summarize in a way that the agent receiving your summary can understand it without extra context.
 The data might be chunked; if it is, ensure to deduplicate information, as there is some chunking overlap to avoid loss of context.
 For the sake of long-form open-ended responses, you should include a "Quotes" section where you write a list quotes word-for-word if they are relevant to the given query.
 Estimated word count limit: {recommended_word_limit}.
 Use the word count limit as a guideline on how concise you must be.
+If no useful information, just say \"No information found\".
 
 {GROUNDING_INSTRUCTION}
         """.strip()
@@ -526,7 +544,7 @@ Use the word count limit as a guideline on how concise you must be.
         return res.content or ""
 
     async def chunk_and_summarize(
-        self, contents: str, source_identifier: str, recommended_max_tokens: int
+        self, contents: str
     ) -> str:
         """
         Shared chunking and summarization logic for both web and internal documents.
@@ -542,13 +560,16 @@ Use the word count limit as a guideline on how concise you must be.
         # --- START: RAG-Inspired Semantic Chunking ---
         incoming_tokens = count_tokens(contents)
 
-        if incoming_tokens > 10000:
+        if incoming_tokens > MODEL_MAX_TOKENS / 2:
             logger.debug(
                 f"Large document detected ({incoming_tokens} tokens). Processing in chunks..."
             )
-            # We use overlap so the model doesn't lose context between chunks
+            # We use overlap so the model doesn't lose context between chunks.
+            # Use 3/4 if max number of tokens model can process.
+            max_tokens_per_chunk = int(MODEL_MAX_TOKENS * 0.75)
+            recommended_output_tokens = MODEL_MAX_TOKENS - max_tokens_per_chunk - 200
             chunks = self._semantic_chunker(
-                contents, max_tokens=7000, overlap=500
+                contents, max_tokens=max_tokens_per_chunk, overlap=int(max_tokens_per_chunk * 0.1)
             )
 
             # Semantic chunker sometimes only returns 1 chunk, in this case don't need to do aggregation of summaries
@@ -557,7 +578,7 @@ Use the word count limit as a guideline on how concise you must be.
                 for i, chunk in enumerate(chunks):
                     logger.debug(f"Processing chunk {i+1}/{len(chunks)}...")
                     # Each chunk gets a fixed budget for its mini-summary
-                    chunk_summary = await self.summarize_document(chunk, 1500)
+                    chunk_summary = await self.summarize_document(chunk, recommended_output_tokens)
                     logger.debug(f"Summary for chunk {i+1}: {chunk_summary}")
                     intermediate_summaries.append(chunk_summary)
 
@@ -840,7 +861,7 @@ Use the word count limit as a guideline on how concise you must be.
 
                 # Use shared chunking and summarization logic
                 summarized = await self.chunk_and_summarize(
-                    raw_content, f"internal:{point_id}", recommended_max_tokens=1000
+                    raw_content
                 )
 
                 # Track by file name instead of point_id to avoid counting multiple chunks as separate sources
@@ -890,11 +911,14 @@ Use the word count limit as a guideline on how concise you must be.
     async def _run_internet_research(self, priority_queue: deque, source_limit: int):
         """
         Run internet-based research (web search + webpage browsing).
-        
+
         Args:
             priority_queue: Queue of priority sources to search
             source_limit: Maximum number of sources to collect
         """
+        max_retries = 3
+        base_delay = 1.0  # Base delay in seconds for backoff
+
         while len(self.source_list) < source_limit or count_tokens(
             self.summary
         ) > int(MODEL_MAX_TOKENS / 5 * 4):
@@ -915,42 +939,73 @@ Use the word count limit as a guideline on how concise you must be.
                 search_results = await self.web_search(search_query)
             else:
                 search_prompt = f"Research topic: {self.research_topic}\n\nUsed search queries:\n{used_queries_formatted}"
-                search_msg = await call_llm(
-                    self.client,
-                    self.model,
-                    WEB_SEARCH_INSTRUCTIONS,
-                    search_prompt,
-                    tools=[self.web_search],
-                    force_tool=self.web_search,
-                )
+                
+                # Retry loop for web search tool call
+                search_results = None
+                for attempt in range(max_retries):
+                    search_msg = await call_llm(
+                        self.client,
+                        self.model,
+                        WEB_SEARCH_INSTRUCTIONS,
+                        search_prompt,
+                        tools=[self.web_search],
+                        force_tool=self.web_search,
+                    )
 
-                search_tool_calls = search_msg.tool_calls
-                if not search_tool_calls:
-                    raise RuntimeError("Web Search failed")
-                search_tool_call = search_tool_calls[0]
-                search_results = await self.web_search(
-                    **json.loads(search_tool_call.function.arguments)
-                )
+                    search_tool_calls = search_msg.tool_calls
+                    if search_tool_calls:
+                        search_tool_call = search_tool_calls[0]
+                        search_results = await self.web_search(
+                            **json.loads(search_tool_call.function.arguments)
+                        )
+                        break
+                    else:
+                        logger.warning(f"Web search tool call failed (attempt {attempt + 1}/{max_retries}): LLM returned non-tool response")
+                        if attempt < max_retries - 1:
+                            exponential_delay = base_delay * (2 ** attempt)
+                            jitter = random.uniform(0, exponential_delay * 0.5)
+                            delay = exponential_delay + jitter
+                            logger.debug(f"Retrying web search in {delay:.2f}s...")
+                            await asyncio.sleep(delay)
+                
+                if not search_results:
+                    raise RuntimeError(f"Web Search failed after {max_retries} attempts")
+                    
             logger.debug(f"Web search results:\n{search_results}")
 
             # Browse webpages
             browse_prompt = f"Research topic: {self.research_topic}\n\nExisting references:\n{self.source_list}\n\nWeb search results:\n{search_results}"
-            browse_msg = await call_llm(
-                self.client,
-                self.model,
-                WEBPAGE_BROWSE_INSTRUCTIONS,
-                browse_prompt,
-                tools=[self.webpage_browse],
-                force_tool=self.webpage_browse,
-            )
-            logger.debug(browse_prompt)
+            
+            # Retry loop for webpage browse tool call
+            browsed_contents = None
+            for attempt in range(max_retries):
+                logger.debug(attempt)
+                browse_msg = await call_llm(
+                    self.client,
+                    self.model,
+                    WEBPAGE_BROWSE_INSTRUCTIONS,
+                    browse_prompt,
+                    tools=[self.webpage_browse],
+                    force_tool=self.webpage_browse,
+                )
 
-            browse_tool_calls = browse_msg.tool_calls
-            if not browse_tool_calls:
-                raise RuntimeError("Webpage browse tool call failed")
-            browse_tool_call = browse_tool_calls[0]
-            browse_arguments = json.loads(browse_tool_call.function.arguments)
-            browsed_contents = await self.webpage_browse(**browse_arguments)
+                browse_tool_calls = browse_msg.tool_calls
+                if browse_tool_calls:
+                    browse_tool_call = browse_tool_calls[0]
+                    browse_arguments = json.loads(browse_tool_call.function.arguments)
+                    browsed_contents = await self.webpage_browse(**browse_arguments)
+                    break
+                else:
+                    logger.warning(f"Webpage browse tool call failed (attempt {attempt + 1}/{max_retries}): LLM returned non-tool response")
+                    if attempt < max_retries - 1:
+                        exponential_delay = base_delay * (2 ** attempt)
+                        jitter = random.uniform(0, exponential_delay * 0.5)
+                        delay = exponential_delay + jitter
+                        logger.debug(f"Retrying webpage browse in {delay:.2f}s...")
+                        await asyncio.sleep(delay)
+            
+            if not browsed_contents:
+                raise RuntimeError(f"Webpage browse tool call failed after {max_retries} attempts")
 
             # Summary update
             summary_prompt = f"Research topic: {self.research_topic}\n\nCurrent summary: {self.summary}\n\nNewly browsed contents: {json.dumps(browsed_contents)}"
@@ -986,6 +1041,8 @@ Use the word count limit as a guideline on how concise you must be.
         SCORE_THRESHOLD = 0.4
         HIGH_CONFIDENCE_MIN_CHUNKS = 2
         retrieved_file_hashes = set()  # Track unique files retrieved
+        max_retries = 3
+        base_delay = 1.0  # Base delay in seconds for backoff
 
         # Continue until we have enough sources, run out of files, or summary is too long
         while len(self.internal_sources) < source_limit:
@@ -1002,24 +1059,38 @@ Use the word count limit as a guideline on how concise you must be.
             )
 
             search_prompt = f"Research topic: {self.research_topic}\n\nUsed internal search queries:\n{used_internal_queries_formatted}"
-            search_msg = await call_llm(
-                self.client,
-                self.model,
-                INTERNAL_SEARCH_INSTRUCTIONS,
-                search_prompt,
-                tools=[self.internal_search],
-                force_tool=self.internal_search,
-            )
+            
+            # Retry loop for internal search tool call
+            search_results_raw = None
+            for attempt in range(max_retries):
+                search_msg = await call_llm(
+                    self.client,
+                    self.model,
+                    INTERNAL_SEARCH_INSTRUCTIONS,
+                    search_prompt,
+                    tools=[self.internal_search],
+                    force_tool=self.internal_search,
+                )
 
-            search_tool_calls = search_msg.tool_calls
-            if not search_tool_calls:
-                logger.warning("Internal search tool not called, ending internal research")
+                search_tool_calls = search_msg.tool_calls
+                if search_tool_calls:
+                    search_tool_call = search_tool_calls[0]
+                    search_results_raw = await self.internal_search(
+                        **json.loads(search_tool_call.function.arguments)
+                    )
+                    break
+                else:
+                    logger.warning(f"Internal search tool call failed (attempt {attempt + 1}/{max_retries}): LLM returned non-tool response")
+                    if attempt < max_retries - 1:
+                        exponential_delay = base_delay * (2 ** attempt)
+                        jitter = random.uniform(0, exponential_delay * 0.5)
+                        delay = exponential_delay + jitter
+                        logger.debug(f"Retrying internal search in {delay:.2f}s...")
+                        await asyncio.sleep(delay)
+            
+            if not search_results_raw:
+                logger.warning("Internal search tool not called after retries, ending internal research")
                 break
-
-            search_tool_call = search_tool_calls[0]
-            search_results_raw = await self.internal_search(
-                **json.loads(search_tool_call.function.arguments)
-            )
 
             # Parse search results and group by file
             try:

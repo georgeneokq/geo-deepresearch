@@ -91,6 +91,7 @@ async def call_llm(
     max_retries = 10
     for attempt in range(max_retries):
         try:
+            logger.debug(f"Calling LLM with arguments: {kwargs}")
             response = await client.chat.completions.create(**kwargs)
             break
         except RateLimitError as e:

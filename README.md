@@ -346,7 +346,9 @@ See [Qdrant README](./qdrant_cron/README.md)
 - Currently only caching content, but the same lock and cache can be used for storing the summary as well. This saves even more calls
 - Current browse retry logic retries up to 3 times no matter what the error code is. This doesn't make sense for 402 (Payment Required) for example.
 - Jina started returning 402 payment required for many websites in one of my runs but when manually browsing to that URL it is publicly accessible. Checking rate limit of Jina API key with "curl https://r.jina.ai -H "Authorization: Bearer <API_KEY>" showed negative balance, further proving it is indeed Jina's rate limit
-- 
+- Search queries sometimes end up very long, a human would use a more concise search query on google
+- When bringing all summaries together, the context can become very large. Probably good to do naive truncation, to 3/4 of available model size.
+- Recommended
 
 ## TODO
 

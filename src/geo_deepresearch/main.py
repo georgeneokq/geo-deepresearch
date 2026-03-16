@@ -76,7 +76,7 @@ async def research(body: ResearchRequestBody):
 
     # Run the agents. Filter out ones that did not succeed.
     queries = [subquery.query for subquery in subqueries]
-    results = await run_agents(queries, agents)
+    results = await run_agents(queries, agents, min_sources=4)
 
     subqueries_str = [subquery.query for subquery in subqueries]
     final_summary = await summarize_for_final_report(query, subqueries_str, results)
