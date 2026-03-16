@@ -69,7 +69,7 @@ async def get_document(point_id: str) -> dict[str, str]:
     client: AsyncQdrantClient = app.state.qdrant_client
     try:
         text = await get_document_text_by_point_id(point_id, client=client)
-        return {"point_id": point_id, "content": text}
+        return {"content": text}
     except (RuntimeError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     except FileNotFoundError:
@@ -93,7 +93,7 @@ async def get_surrounding_chunk(
             max_surrounding_character_count=max_chars,
             client=client
         )
-        return {"point_id": point_id, "content": text}
+        return {"content": text}
     except (RuntimeError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     except FileNotFoundError:

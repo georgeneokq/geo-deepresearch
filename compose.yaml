@@ -26,7 +26,13 @@ services:
     environment:
       DOCLING_SERVE_ENABLE_UI: "true"
       NVIDIA_VISIBLE_DEVICES: "all"
-    deploy:  # This section is for compatibility with Swarm
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
       resources:
         reservations:
           devices:
@@ -57,21 +63,18 @@ services:
       - qdrant_cron/.env
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    # GPU access for faster PDF conversion with Docling
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
     volumes:
       # Hot reload source code and tests
       - "./qdrant_cron/src:/app/src"
       # For document ingestion
       - "./qdrant_cron/ingest_docs:/app/ingest_docs:ro"
+      # Cache processed documents for retrieving surrounding text
+      - "./qdrant_cron/processed_docs:/app/processed_docs"
       # Models cache dir      
       - "./models:/app/models"
+    depends_on:
+      docling-serve:
+        condition: service_healthy
 
   qdrant_api_server:
     build:
@@ -85,8 +88,8 @@ services:
     volumes:
       # Hot reload source code
       - "./qdrant_cron/src:/app/src"
-      # For reading documents
-      - "./qdrant_cron/ingest_docs:/app/ingest_docs:ro"
+      # Cache processed documents for retrieving surrounding text
+      - "./qdrant_cron/processed_docs:/app/processed_docs:ro"
       # Models cache dir      
       - "./models:/app/models"
     ports:

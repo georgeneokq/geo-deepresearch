@@ -1,4 +1,4 @@
-import os
+import json
 from uuid import UUID
 from pathlib import Path
 from qdrant_client import AsyncQdrantClient, models
@@ -8,11 +8,9 @@ from embedding import (
     SPARSE_EMBEDDING_MODEL,
 )
 from extract import document_processor
-from util.crypto import generate_file_sha256
+from constants import PROCESSED_DOCS_DIR, WATCH_DIR
 
 logger = get_logger()
-
-DOCS_DIR = os.environ.get("INGEST_DIR", "/app/ingest_docs")
 
 
 async def get_point_by_id(
@@ -122,23 +120,24 @@ async def get_surrounding_text_by_point_id(
     
     # Check the document exist and hash matches, if not raise error
     file_name = point.payload["file_name"]
-    file_path = Path(DOCS_DIR, file_name)
-    try:
-        with open(file_path, "rb") as f:
-            file_bytes = f.read()
-            file_hash = generate_file_sha256(file_bytes=file_bytes)
-
-            # Check file hash matches
-            # TODO: This can be averted 100% theoretically if we handle chunk deletion when original file is deleted off disk.
-            if not file_hash == point.payload["file_hash"]:
-                raise RuntimeError("Matching file name found, but file hash does not match. Aborting.")
-    except FileNotFoundError:
-        raise RuntimeError("File not found.")
-
     chunk_text = point.payload["text"]
     substring_index = point.payload["substring_index"]
-    full_text = await document_processor.extract_markdown(file_path)
 
+    file_path = Path(WATCH_DIR, file_name)
+    processed_doc_file_path = Path(PROCESSED_DOCS_DIR, file_name + ".json")
+    try:
+        with open(processed_doc_file_path) as f:
+            processed = json.load(f)
+    except FileNotFoundError:
+        logger.error(f"Processed file metadata not found at {processed_doc_file_path.absolute()}")
+        logger.warning("Faling back to empty surrounding text")
+        return ("", chunk_text, "")
+
+    file_hash = processed["file_hash"]
+    if not file_hash == point.payload["file_hash"]:
+        raise RuntimeError("Matching file found, but file hash does not match. Aborting.")
+
+    full_text = processed["processed_text"]
     text_before, text, text_after = get_surrounding_text(
         chunk_text,
         full_text,
@@ -192,27 +191,6 @@ def _sanitize_file_path(file_name: str, base_dir: str) -> Path:
     return file_path
 
 
-async def get_document_text(file_name: str) -> str:
-    """
-    Read and extract text from a document.
-
-    Args:
-        file_name: Name of the file to read (must be within DOCS_DIR)
-
-    Returns:
-        Extracted text content from the document
-
-    Raises:
-        ValueError: If file path attempts path traversal
-        FileNotFoundError: If file does not exist
-    """
-    # Sanitize path to prevent traversal attacks
-    file_path = _sanitize_file_path(file_name, DOCS_DIR)
-
-    # Extract and return text
-    return await document_processor.extract_markdown(file_path)
-
-
 async def get_document_text_by_point_id(
     point_id: str,
     *,
@@ -242,12 +220,9 @@ async def get_document_text_by_point_id(
         point_id, client=client, collection_name=collection_name
     )
 
-    if not point.payload:
-        raise RuntimeError("Point has empty payload")
-
-    file_name = point.payload.get("file_name")
-    if not file_name:
-        raise RuntimeError("Point payload missing 'file_name'")
-
-    # Read document using sanitized filename from payload
-    return await get_document_text(file_name)
+    # Retrieve from cache
+    assert point.payload
+    file_name = point.payload["file_name"]
+    with open(Path(PROCESSED_DOCS_DIR, file_name + ".json")) as f:
+        processed = json.load(f)
+    return processed["processed_text"]

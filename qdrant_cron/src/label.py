@@ -86,5 +86,5 @@ async def get_chunk_label(text: str, full_document_content: str, document_title:
         )
         return document_title
 
-    logger.debug(f"Chunk: {text[:150]}\nLabel: {label}")
+    logger.debug(f"Label: {label}")
     return label

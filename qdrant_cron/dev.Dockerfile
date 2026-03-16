@@ -15,6 +15,9 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 # Directory to insert documents for ingestion
 RUN mkdir -p ingest_docs
 
+# Directory to cache processeed documents for retrieval
+RUN mkdir -p processed_docs
+
 # Copy dependency management files
 COPY pyproject.toml \
     uv.lock \

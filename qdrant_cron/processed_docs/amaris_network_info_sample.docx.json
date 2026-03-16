@@ -1,0 +1,4 @@
+{
+    "processed_text": "Network information of Amaris.AI:\n\nWeb server: 192.168.1.2\n\nOllama server: 192.168.1.222:11434\n\nSubnets:\n\nStaff: 192.168.1.0/24\n\nGuest: 192.168.2.0/24",
+    "file_hash": "f9862ff1b12467ce0bb5d06f5be4f9b45d05da6f806e86ba01fd119117cbf6b5"
+}

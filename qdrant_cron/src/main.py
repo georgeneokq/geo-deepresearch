@@ -1,26 +1,26 @@
+import json
+import os
 import asyncio
 import httpx
 import os
-from qdrant_client import AsyncQdrantClient, models
 import uuid
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
-import os
+from qdrant_client import AsyncQdrantClient, models
 from extract import document_processor
 from embedding import DENSE_EMBEDDING_MODEL, SPARSE_EMBEDDING_MODEL, preload_embedding_model, chunk_document, preload_sparse_embedding_model
 from label import get_chunk_label
 from util.logger import get_logger, setup_logging
 from schemas import Chunk
 from util.crypto import generate_file_sha256
+from constants import QDRANT_URL, COLLECTION_NAME, WATCH_DIR, PROCESSED_DOCS_DIR
 
 setup_logging()
 
 logger = get_logger()
 
 # Configuration
-COLLECTION_NAME = os.environ.get("QDRANT_COLLECTION_NAME", "internal_docs")
-WATCH_DIR = os.environ.get("INGEST_DIR", "/app/ingest_docs")
-QDRANT_URL = os.environ.get("QDRANT_URL", "http://qdrant:6333")
 
 client = AsyncQdrantClient(url=QDRANT_URL)
 
@@ -120,7 +120,6 @@ async def ingest_file(
 
         # Extract text for different types of documents
         contents = await document_processor.extract_markdown(file_path)
-        print(contents)
 
         # File hash as secondary unique identifier
         hash = file_hash or generate_file_sha256(file_bytes=file_bytes)
@@ -142,9 +141,7 @@ async def ingest_file(
             # TODO: Make parallelism a configurable option
             for chunk in initial_chunks:
                 chunk_text = chunk["chunk"]
-                logger.debug(f"Labelling chunk: {chunk_text[:150]}...")
                 label = await get_chunk_label(chunk_text, contents, file_name)
-                logger.debug(f"Labelled chunk: {chunk_text[:150]}...")
                 chunks.append({
                     "label": label,
                     "start_index": chunk["start_index"],
@@ -191,6 +188,16 @@ async def ingest_file(
             collection_name=COLLECTION_NAME,
             points=points,
         )
+
+        # Insert into processed cache
+        processed_file_path = Path(PROCESSED_DOCS_DIR, file_name + ".json")
+        with open(processed_file_path, "w") as f:
+            processed = {
+                "processed_text": contents,
+                "file_hash": hash
+            }
+            json.dump(processed, f, indent=4)
+
     except Exception as e:
         logger.error(f"Failed to ingest {file_name}: {e}")
 
@@ -225,12 +232,12 @@ async def init_qdrant():
 
 
 async def check_and_sync(
-    *, docs_dir: str = WATCH_DIR, ingested_files_cache: IngestedFilesCache
+    *, ingest_docs_dir: str = WATCH_DIR, ingested_files_cache: IngestedFilesCache
 ):
     """Check for new files and ingest"""
     # Scan directory for new docs
     local_files = [
-        f for f in os.listdir(docs_dir) if os.path.isfile(os.path.join(docs_dir, f))
+        f for f in os.listdir(ingest_docs_dir) if os.path.isfile(os.path.join(ingest_docs_dir, f))
     ]
 
     # Find files that haven't been processed
