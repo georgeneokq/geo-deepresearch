@@ -498,7 +498,7 @@ class AgentRunner(abc.ABC):
 
         return summaries
 
-    async def summarize_webpage(
+    async def summarize_document(
         self, contents: str, recommended_max_tokens: int
     ) -> str:
         # Max tokens is used for recommended word limit calculation, not a hard cap
@@ -507,7 +507,8 @@ class AgentRunner(abc.ABC):
         summarizer_instructions = f"""
 Given the following research topic and webpage contents, extract out only the information relevant to the query.
 The webpage contents may be truncated. If it seems truncated, summarize while noting a possible lack of context due truncation.
-Be concise to save tokens, but summarize in a way that the agent receiving your summary can understand it without extra context.
+Aim to be concise to save tokens, but do not skip information that has any relevance to the research topic.
+Ssummarize in a way that the agent receiving your summary can understand it without extra context.
 The data might be chunked; if it is, ensure to deduplicate information, as there is some chunking overlap to avoid loss of context.
 For the sake of long-form open-ended responses, you should include a "Quotes" section where you write a list quotes word-for-word if they are relevant to the given query.
 Estimated word count limit: {recommended_word_limit}.
@@ -556,7 +557,7 @@ Use the word count limit as a guideline on how concise you must be.
                 for i, chunk in enumerate(chunks):
                     logger.debug(f"Processing chunk {i+1}/{len(chunks)}...")
                     # Each chunk gets a fixed budget for its mini-summary
-                    chunk_summary = await self.summarize_webpage(chunk, 1000)
+                    chunk_summary = await self.summarize_document(chunk, 1500)
                     logger.debug(f"Summary for chunk {i+1}: {chunk_summary}")
                     intermediate_summaries.append(chunk_summary)
 
@@ -583,12 +584,9 @@ Use the word count limit as a guideline on how concise you must be.
             summarize_max_tokens = max(available_space, MIN_SUMMARY_ROOM)
 
         logger.debug(
-            f"Budgeting {summarize_max_tokens} tokens for this intermediate summary."
+            f"Budgeting {summarize_max_tokens} tokens for summarizing:\n{contents[:200]}...\n"
         )
-        logger.debug(
-            f"Passing in for final summarization: {contents[:200]}..."
-        )
-        summarized = await self.summarize_webpage(
+        summarized = await self.summarize_document(
             contents, summarize_max_tokens
         )
 
@@ -636,7 +634,7 @@ Use the word count limit as a guideline on how concise you must be.
 
         Args:
             query (str): The search query to search for in the internal document store.
-            limit (int, optional): Number of search results to retrieve.
+            limit (int, optional): Number of search results to retrieve. Recommended minimum of 10.
 
         Returns:
             str: A JSON-formatted string containing the search results or an error message if the search fails.
@@ -654,7 +652,7 @@ Use the word count limit as a guideline on how concise you must be.
 
             params = {
                 "query": query,
-                "limit": limit or 20,  # Fetch more to allow for filtering
+                "limit": limit or 15,  # Fetch more to allow for filtering
             }
 
             result = await self._query_qdrant_api("query", params)
@@ -752,6 +750,7 @@ Use the word count limit as a guideline on how concise you must be.
         )
 
         logger.debug(f"Grouped results into {len(sorted_files)} unique files")
+        logger.debug(sorted_files)
         return sorted_files
 
     async def internal_browse(
@@ -972,8 +971,8 @@ Use the word count limit as a guideline on how concise you must be.
         Run internal document research (Qdrant search + document retrieval).
 
         Strategy:
-        - For files with average score > 0.5: Read the full document (top 3 files)
-        - For files with average score <= 0.5: Read surrounding chunks for all points with score > 0.5
+        - For files with 3 or more chunks scoring > 0.4: Read the full document (top 3 files)
+        - For other files: Read surrounding chunks for points with score > 0.4
 
         Stop conditions (any of these will end the research):
         - Reached source_limit
@@ -984,7 +983,8 @@ Use the word count limit as a guideline on how concise you must be.
         Args:
             source_limit: Maximum number of sources to collect
         """
-        SCORE_THRESHOLD = 0.5
+        SCORE_THRESHOLD = 0.4
+        HIGH_CONFIDENCE_MIN_CHUNKS = 2
         retrieved_file_hashes = set()  # Track unique files retrieved
 
         # Continue until we have enough sources, run out of files, or summary is too long
@@ -1052,15 +1052,18 @@ Use the word count limit as a guideline on how concise you must be.
 
             logger.info(f"Found {len(new_file_infos)} new files to retrieve (out of {len(file_infos)} total)")
 
-            # Determine retrieval strategy based on average scores
+            # Determine retrieval strategy based on chunk scores
             point_ids_to_retrieve = []
 
-            # Check if any file has average score > threshold
-            high_confidence_files = [f for f in new_file_infos if f["average_score"] > SCORE_THRESHOLD]
+            # Check if any file has 3 or more chunks with score > threshold
+            high_confidence_files = [
+                f for f in new_file_infos 
+                if len(f["high_scoring_point_ids"]) >= HIGH_CONFIDENCE_MIN_CHUNKS
+            ]
 
             if high_confidence_files:
                 # Strategy 1: Read full documents for top high-confidence files
-                logger.info(f"Found {len(high_confidence_files)} high-confidence files (avg score > {SCORE_THRESHOLD}), reading full documents")
+                logger.info(f"Found {len(high_confidence_files)} high-confidence files (>={HIGH_CONFIDENCE_MIN_CHUNKS} chunks with score > {SCORE_THRESHOLD}), reading full documents")
                 # Take top 3 files by total score
                 for file_info in high_confidence_files[:3]:
                     point_ids_to_retrieve.append(file_info["first_point_id"])

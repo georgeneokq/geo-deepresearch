@@ -335,6 +335,7 @@ docker compose exec -it -w /app api-server uv run pytest -s -v -m "e2e" tests/
 
 ### Qdrant
 
+See [Qdrant README](./qdrant_cron/README.md)
 
 
 ## Challenges to tackle
@@ -345,10 +346,10 @@ docker compose exec -it -w /app api-server uv run pytest -s -v -m "e2e" tests/
 - Currently only caching content, but the same lock and cache can be used for storing the summary as well. This saves even more calls
 - Current browse retry logic retries up to 3 times no matter what the error code is. This doesn't make sense for 402 (Payment Required) for example.
 - Jina started returning 402 payment required for many websites in one of my runs but when manually browsing to that URL it is publicly accessible. Checking rate limit of Jina API key with "curl https://r.jina.ai -H "Authorization: Bearer <API_KEY>" showed negative balance, further proving it is indeed Jina's rate limit
+- 
 
 ## TODO
 
-- Local document searching
 - Reduce reliance on Jina: Build custom scraper using httpx
 1. Scrape using httpx
 2. Check if content contains any word in the query to detect dynamic JS pages
@@ -356,3 +357,4 @@ docker compose exec -it -w /app api-server uv run pytest -s -v -m "e2e" tests/
 4. Pass raw HTML to python-readability -> trafilatura
 5. Pass that into summarize function
 
+- Further improve budgeting logic by making room for reasoning tokens, developer must specify via config file if it is reasoning

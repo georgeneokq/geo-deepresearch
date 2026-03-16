@@ -123,7 +123,6 @@ async def get_surrounding_text_by_point_id(
     chunk_text = point.payload["text"]
     substring_index = point.payload["substring_index"]
 
-    file_path = Path(WATCH_DIR, file_name)
     processed_doc_file_path = Path(PROCESSED_DOCS_DIR, file_name + ".json")
     try:
         with open(processed_doc_file_path) as f:
