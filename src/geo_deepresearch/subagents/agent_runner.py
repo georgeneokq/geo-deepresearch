@@ -921,7 +921,7 @@ If no useful information, just say \"No information found\".
 
         while len(self.source_list) < source_limit or count_tokens(
             self.summary
-        ) > int(MODEL_MAX_TOKENS / 5 * 4):
+        ) > int(MODEL_MAX_TOKENS * 0.8):
             self.num_rounds += 1
 
             # Search
