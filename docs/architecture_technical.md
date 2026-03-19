@@ -17,34 +17,39 @@ flowchart TB
     subgraph API["API Layer (FastAPI)"]
         Main["main.py<br/>POST /research"]
         Validate["Request Validation"]
-        Lifespan["Lifespan Management<br/>Tokenizer Preloading"]
+        Lifespan["Lifespan Management"]
     end
 
     subgraph Orchestration["Orchestration Layer"]
-        Decompose["decompose.py<br/>Query Decomposition"]
-        Summarize["summarize.py<br/>Final Report Merging"]
-        Subagents["subagents/<br/>Agent Factory"]
+        Decompose["Query Decomposition"]
+        Subagents["Agent Factory"]
     end
 
     subgraph Agents["Agent Execution Layer"]
-        AgentRunner["AgentRunner (ABC)"]
+        AgentRunner["AgentRunner<br/>(Abstract Class)"]
         CtiAgent["CtiAgentRunner"]
         GeneralAgent["GeneralAgentRunner"]
     end
 
-    subgraph Managers["Manager Layer (Concurrency)"]
-        BrowseMgr["BrowseManager<br/>Webpage Cache/Locks"]
+    subgraph Managers["Manager Layer<br/>(Concurrency)"]
+        direction TB
+        BrowseMgr["BrowseManager"]
         SearchMgr["WebSearchManager"]
-        InternalMgr["InternalBrowseManager<br/>Document Cache/Locks"]
+        InternalMgr["InternalBrowseManager"]
     end
 
     subgraph External["External Services"]
-        Serper["Serper API<br/>Google Search"]
-        Jina["Jina AI<br/>Web Scraping"]
-        Qdrant["Qdrant API<br/>Vector DB"]
-        LLM["OpenAI-compatible<br/>LLM"]
+        Serper["Serper API"]
+        Jina["Jina AI"]
+        Qdrant["Qdrant API"]
+        LLM["OpenAI LLM"]
     end
 
+    subgraph Output["Final Output"]
+        Summarize["summarize.py<br/>Final Report Merging"]
+    end
+
+    %% Vertical Flow
     HTTPClient --> Main
     Main --> Validate
     Main --> Lifespan
@@ -54,16 +59,23 @@ flowchart TB
     Subagents --> GeneralAgent
     CtiAgent --> AgentRunner
     GeneralAgent --> AgentRunner
+    
+    %% Use direct vertical paths
     AgentRunner --> BrowseMgr
     AgentRunner --> SearchMgr
     AgentRunner --> InternalMgr
+    
     BrowseMgr --> Jina
     SearchMgr --> Serper
     InternalMgr --> Qdrant
     AgentRunner --> LLM
+    
     AgentRunner --> Summarize
-    Summarize --> Main
-    Main --> HTTPClient
+    
+    Main <--- Summarize
+    
+    %% Force the layers to stack vertically
+    Client ~~~ API ~~~ Orchestration ~~~ Agents ~~~ Managers ~~~ External ~~~ Output
 ```
 
 ### Component Interaction Flow
@@ -136,7 +148,41 @@ sequenceDiagram
 ### Research Mode Flow
 
 ```mermaid
-flowchart LR
+flowchart TB
+    Start([Research Start]) --> Mode{Research Mode}
+    
+    subgraph InternetPhase ["Internet Research Phase"]
+        direction LR
+        WebSearch[Web Search] --> WebBrowse[Web Browse]
+        WebBrowse --> WebSummary[Summarize]
+        WebSummary --> WebCheck{Source Limit Reached?}
+        WebCheck -- No --> WebSearch
+    end
+
+    subgraph InternalPhase ["Internal Document Phase"]
+        direction LR
+        QdrantSearch[Vector Search] --> GroupResults[Group Files]
+        GroupResults --> Strategy{Min. 2 Chunks<br/>Scored >= 0.4?}
+        Strategy -- Yes --> FullDocs[Full Docs]
+        Strategy -- No --> Surrounding[Surround]
+        FullDocs --> InternalBrowse[Internal Browse]
+        Surrounding --> InternalBrowse
+        InternalBrowse --> InternalSummary[Summarize]
+        InternalSummary --> InternalCheck{Source Limit Reached?}
+        InternalCheck -- No --> QdrantSearch
+    end
+
+    Mode -->|INTERNET| InternetPhase
+    Mode -->|INTERNAL| InternalPhase
+    Mode -->|HYBRID| InternetPhase
+    
+    InternetPhase -->|HYBRID: Next Phase| InternalPhase
+    InternetPhase -->|Done| Final([Final Report])
+    InternalPhase -->|Done| Final
+```
+
+```mermaid
+flowchart TB
     Start([Research Start]) --> Mode{Research Mode}
     
     Mode -->|INTERNET| InternetOnly[Internet Phase Only]
@@ -152,9 +198,9 @@ flowchart LR
     
     InternalOnly --> QdrantSearch[Qdrant Search<br/>Vector DB]
     QdrantSearch --> GroupResults[Group by file_hash]
-    GroupResults --> Strategy{Avg score<br/>threshold?}
-    Strategy -->|High| FullDocs[Read Full Documents]
-    Strategy -->|Low| Surrounding[Read Surrounding Chunks]
+    GroupResults --> Strategy{Min. 2 Chunks<br/>Scored >= 0.4?}
+    Strategy -->|Yes| FullDocs[Read Full Documents]
+    Strategy -->|No| Surrounding[Read Surrounding Chunks]
     FullDocs --> InternalBrowse[Internal Browse]
     Surrounding --> InternalBrowse
     InternalBrowse --> InternalSummary[Summarize]

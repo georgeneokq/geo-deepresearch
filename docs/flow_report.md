@@ -34,7 +34,7 @@ Retrieved documents are cached to prevent duplicate retrievals when multiple age
 
 ## Chunking and Summarization Flow
 
-Large documents exceeding 50,000 tokens are processed using semantic chunking. The document is split into chunks of approximately 75,000 tokens with 10% overlap between consecutive chunks. The text splitter prioritizes structural boundaries like headings and paragraph breaks to maintain semantic coherence.
+Large documents exceeding token count of half the model's max context window are processed using semantic chunking. The document is split into chunks of approximately 3 fourths of the model's max context window with 10% overlap between consecutive chunks. The text splitter prioritizes structural boundaries like headings and paragraph breaks to maintain semantic coherence.
 
 Each chunk is summarized independently with a fixed token budget calculated based on the model's capacity. The intermediate summaries are concatenated with section separators and passed through a final summarization pass to produce a cohesive summary. Documents below the chunking threshold are summarized directly in a single pass.
 

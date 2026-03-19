@@ -154,25 +154,25 @@ flowchart TD
         B --> E[Output Schema:<br/>DecomposerOutput]
     end
     
-    C --> F[LLM Response<br/>{"subqueries": [...]}]
+    C --> F["LLM Response<br/>{'subqueries': [...]}"]
     D --> F
     E --> F
     
     F --> G[Parse Response<br/>message.parsed]
     
-    G --> H[DecomposerOutput Object<br/>subqueries: [<br/>  {expertise: "cti", query: "..."},<br/>  {expertise: "general", query: "..."}<br/>]]
+    G --> H["DecomposerOutput Object<br/>subqueries: [<br/>  {expertise: 'cti', query: '...'},<br/>  {expertise: 'general', query: '...'}<br/>]"]
     
     H --> I[Agent Factory<br/>create_research_subagent]
     
     subgraph Factory["Agent Creation Loop"]
-        I --> J{expertise == "cti"?}
+        I --> J{expertise == 'cti'?}
         J -->|Yes| K[CtiAgentRunner<br/>mode=research_mode]
-        J -->|No| L{expertise == "finance"?}
+        J -->|No| L{expertise == 'finance'?}
         L -->|Yes| M[FinanceAgentRunner<br/>mode=research_mode]
         L -->|No| N[GeneralAgentRunner<br/>mode=research_mode]
     end
     
-    K --> O[agents = [cti_agent, ...]]
+    K --> O["agents = [cti_agent, ...]"]
     M --> O
     N --> O
     
