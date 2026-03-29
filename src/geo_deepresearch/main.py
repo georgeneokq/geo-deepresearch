@@ -28,6 +28,7 @@ from geo_deepresearch.decompose import decompose_query
 from geo_deepresearch.tokenize import preload_tokenizer
 from geo_deepresearch.summarize import summarize_for_final_report
 from geo_deepresearch.subagents.agent_runner import ResearchMode
+from geo_deepresearch.util.report import save_report
 
 setup_logging()
 
@@ -80,5 +81,9 @@ async def research(body: ResearchRequestBody):
 
     subqueries_str = [subquery.query for subquery in subqueries]
     final_summary = await summarize_for_final_report(query, subqueries_str, results)
+
+    # Save to file
+    path = save_report(final_summary)
+    logger.info(f"Saved to: {path.absolute()}")
 
     return JSONResponse(content={"answer": final_summary})

@@ -96,10 +96,10 @@ Ensure to include a title for the report.
 All statements in your answer must be linked to a citation.
 Ensure to keep all previously linked citations and references list.
 
-For internal documents, use the following citation format:
+Use the following citation format:
 - In-text citation: [1], [2], etc.
-- Reference list format: "1. Internal docs - <file name>.pdf"
-- For web sources: "2. <full URL>"
+- Internal document citations (items with UUID as key): "1. Internal docs - <file name>.pdf"
+- Website citations (items with URL as key): "2. <full URL>"
 
 {GROUNDING_INSTRUCTION}
 
@@ -575,12 +575,32 @@ If no useful information, just say \"No information found\".
             # Semantic chunker sometimes only returns 1 chunk, in this case don't need to do aggregation of summaries
             if len(chunks) > 1:
                 intermediate_summaries = []
-                for i, chunk in enumerate(chunks):
-                    logger.debug(f"Processing chunk {i+1}/{len(chunks)}...")
-                    # Each chunk gets a fixed budget for its mini-summary
-                    chunk_summary = await self.summarize_document(chunk, recommended_output_tokens)
-                    logger.debug(f"Summary for chunk {i+1}: {chunk_summary}")
-                    intermediate_summaries.append(chunk_summary)
+
+                # Run in parallel if PARALLEL_CHUNK_SUMMARIZATION is enabled, number of parallel slots is defined in env.
+                # However if disabled, num_parallel_slots is set to 1 to force sequential processing.
+                parallel_chunk_summarization = os.environ.get("PARALLEL_CHUNK_SUMMARIZATION", "").lower() == "true"
+                num_parallel_slots = 1 if not parallel_chunk_summarization else int(os.environ.get("PARALLEL_SLOTS", 2))
+
+                # Define task to be ran in parallel
+                async def task(chunk: str, total_chunks: int, semaphore: asyncio.Semaphore, task_id: str | int):
+                    async with semaphore:
+                        try:
+                            logger.debug(f"Processing chunk {task_id}/{total_chunks}...")
+                            # Each chunk gets a fixed budget for its mini-summary
+                            chunk_summary = await self.summarize_document(chunk, recommended_output_tokens)
+                            logger.debug(f"Summary for chunk {task_id}: {chunk_summary}")
+                            return chunk_summary
+                        except Exception as e:
+                            logger.error(f"Error in processing chunk {task_id}: {str(e)}")
+                            traceback.print_exc()
+                            return "Failed to process chunk."
+
+                # Run summarization tasks
+                sem = asyncio.Semaphore(num_parallel_slots)
+                status = "enabled" if parallel_chunk_summarization else "disabled (sequential)"
+                logger.debug(f"Parallel chunk summarization {status}. Concurrency limit: {num_parallel_slots}")
+                num_chunks = len(chunks)
+                intermediate_summaries = await asyncio.gather(*[task(chunk, num_chunks, sem, i+1) for i, chunk in enumerate(chunks)])
 
                 # Consolidate: This becomes the new input for the final update
                 contents = "\n\n--- NEXT SECTION ---\n\n".join(
@@ -889,25 +909,6 @@ If no useful information, just say \"No information found\".
 
         return json.dumps(summaries, indent=2), file_names
 
-    def generate_report_output_path(
-        self, file_name_base: Optional[str] = None, ext: str = "md"
-    ) -> Path:
-        save_dir = Path("./outputs").absolute()
-        filename = f"{file_name_base if file_name_base else int(time.time())}.{ext}"
-        return save_dir / filename
-
-    def save_report(
-        self, file_contents: str, file_name_base: Optional[str] = None, ext: str = "md"
-    ) -> Path:
-        # Ensure directory exists
-        path = self.generate_report_output_path(file_name_base=file_name_base, ext=ext)
-        path.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(path, "w") as f:
-            f.write(file_contents)
-
-        return path
-
     async def _should_continue_research(self) -> bool:
         """
         Determines whether the research should continue or can be terminated early.
@@ -1084,6 +1085,16 @@ Response:
                 if browse_tool_calls:
                     browse_tool_call = browse_tool_calls[0]
                     browse_arguments = json.loads(browse_tool_call.function.arguments)
+                    
+                    # Limit the number of pages to browse.
+                    urls = browse_arguments.get("urls")
+                    
+                    if isinstance(urls, list):
+                        # Limit the number of pages to browse if it's a list (and it should be!)
+                        browse_limit = int(os.environ.get("NUM_BROWSE_PER_SEARCH", 2))
+                        browse_arguments["urls"] = urls[:browse_limit]
+                        logger.debug(f"Limiting browse to {len(browse_arguments["urls"])} pages.")
+
                     browsed_contents = await self.webpage_browse(**browse_arguments)
                     break
                 else:
@@ -1339,9 +1350,5 @@ Response:
             errors_section = f"\n\n**Error Browsing URLs**\n{'\n'.join([f'{index + 1}. {item}' for index, item in enumerate(self.failed_browses)])}"
 
         self.summary = f"{self.summary}{errors_section if errors_section else ''}"
-
-        # Save to file
-        path = self.save_report(self.summary)
-        logger.info(f"Saved to: {path.absolute()}")
 
         return self.summary

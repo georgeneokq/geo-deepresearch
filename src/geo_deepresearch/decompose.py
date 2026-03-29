@@ -11,8 +11,6 @@ Instructions:
 - Expect that the query could span multiple topics.
 - Break the query down enough such that specialized sub-agents can be spawned for each query.
 - Phrase each subquery to be concise and Google Search optimized, do not use full sentences.
-    - Good example: "IOCs of APT42"
-    - Bad example: "List and categorize the most recent operational IOCs (malware hashes, C2 domains, IP addresses) associated with APT42."
 - Keep the query concise.
 - If the query is already simple enough, spawn only one agent.
 
@@ -25,6 +23,28 @@ Output format is a JSON object in the following format:
 {
   "subqueries": [{"expertise": "cti", "query": "IOCs of APT42"}]
 }
+
+## Examples:
+
+### Good examples
+
+- "IOCs of APT42"
+    - Subagent 1: "IP addresses of APT42"
+    - Subagent 2: "Malware hashes of APT42"
+    - Subagent 3: "APT42 C2 domains"
+
+- "Bitcoin, ethereum, gold price trends comparison"
+    - Subagent 1: "Bitcoin trends"
+    - Subagent 2: "Bitcoin trends"
+    - Subagent 3: "Gold trends"
+
+### Bad examples
+
+Do not overload a single agent, like the examples below:
+
+- "List and categorize the most recent operational IOCs (malware hashes, C2 domains, IP addresses) associated with APT42."
+- "APT42 latest operational IOCs malware hashes C2 domains IPs"
+- "Bitcoin trends and gold trends"
 
 """.strip()
 
