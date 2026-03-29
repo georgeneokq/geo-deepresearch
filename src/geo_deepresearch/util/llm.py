@@ -86,6 +86,13 @@ async def call_llm(
             "type": "function",
             "function": {"name": force_tool.__name__},
         }
+    
+    # TODO: Un-hardcode openrouter reasoning
+    kwargs["extra_body"] = {
+        "reasoning": {
+            "effort": "none"
+        }
+    }
 
     response = None
     max_retries = 10

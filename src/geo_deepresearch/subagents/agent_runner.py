@@ -908,6 +908,97 @@ If no useful information, just say \"No information found\".
 
         return path
 
+    async def _should_continue_research(self) -> bool:
+        """
+        Determines whether the research should continue or can be terminated early.
+        
+        Uses an LLM call to evaluate if the current summary sufficiently addresses
+        the research topic. For simple questions with complete answers, returns False
+        to end early. For complex/long-form topics, returns True to continue gathering
+        sources.
+        
+        Returns:
+            bool: True if research should continue, False if it can end early
+        """
+        continue_research_prompt = f"""
+You are an evaluator of research completeness. Your task is to decide whether a deep research session should continue or end early.
+
+Given a research topic and the current summary of gathered information, determine if:
+1. The question can be answered simply and the answer is already included in the summary → End research (return False)
+2. The topic is long-form/open-ended and requires more diverse sources → Continue research (return True)
+
+Guidelines:
+- For factual questions (e.g., "What is X?", "When did Y happen?"), if the answer is clearly stated, end early.
+- For exploratory questions (e.g., "What are the opinions on...", "Compare X and Y", "Analyze the impact of..."), continue gathering sources.
+- If the summary is empty or lacks key information mentioned in the topic, continue.
+- If the summary has comprehensive coverage for a simple question, end early.
+- When in doubt, prefer to continue for complex topics.
+
+Respond with ONLY "CONTINUE" or "END", nothing else.
+
+Examples:
+
+Example 1:
+Research topic: "What is the capital of France?"
+Current summary: "The capital of France is Paris [1]."
+Response: END
+
+Example 2:
+Research topic: "What is the CVE for the NiceCurl vulnerability?"
+Current summary: "The NiceCurl vulnerability is tracked as CVE-2024-33663 [1]. It affects curl and libcurl versions before 8.6.0."
+Response: END
+
+Example 3:
+Research topic: "What are the opinions on Google's new product, Antigravity?"
+Current summary: "Google's Antigravity product has received mixed reviews. Some praise its innovative approach [1], while others express concerns about privacy [2]."
+Response: CONTINUE
+
+Example 4:
+Research topic: "Compare the security features of AWS and Azure"
+Current summary: "AWS offers IAM, KMS, and Security Hub [1]. Azure provides Azure AD, Key Vault, and Security Center [2]."
+Response: CONTINUE
+
+Example 5:
+Research topic: "Who discovered penicillin?"
+Current summary: "Penicillin was discovered by Alexander Fleming in 1928 [1]."
+Response: END
+
+Example 6:
+Research topic: "What are the recent activities of APT42?"
+Current summary: "APT42 has been observed using NICECURL backdoor in recent campaigns targeting cloud infrastructure [1][2]."
+Response: CONTINUE
+
+---
+
+Research topic: {self.research_topic}
+Current summary: {self.summary}
+
+Response:
+""".strip()
+
+        try:
+            response = await call_llm(
+                self.client,
+                self.model,
+                "You are an evaluator that responds with ONLY 'CONTINUE' or 'END'.",
+                continue_research_prompt,
+            )
+            
+            response_text = (response.content or "").strip().upper()
+            
+            # Default to continuing if response is unclear
+            if "END" in response_text and "CONTINUE" not in response_text:
+                logger.debug(f"LLM decided to END research early")
+                return False
+            else:
+                logger.debug(f"LLM decided to CONTINUE research")
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error in _should_continue_research: {e}")
+            # On error, default to continuing to avoid premature termination
+            return True
+
     async def _run_internet_research(self, priority_queue: deque, source_limit: int):
         """
         Run internet-based research (web search + webpage browsing).
@@ -1020,6 +1111,13 @@ If no useful information, just say \"No information found\".
             logger.debug(
                 f"Sources used: {'\n'.join([f'- {item}' for item in self.source_list])}"
             )
+
+            # Check if research should continue or end early
+            if len(self.source_list) >= 1:
+                should_continue = await self._should_continue_research()
+                if not should_continue:
+                    logger.info("LLM decided to end research early - sufficient information gathered")
+                    break
 
     async def _run_internal_research(self, source_limit: int):
         """
@@ -1192,6 +1290,13 @@ If no useful information, just say \"No information found\".
             logger.debug(
                 f"Unique file hashes retrieved: {len(retrieved_file_hashes)}"
             )
+
+            # Check if research should continue or end early
+            if len(self.source_list) >= 1:
+                should_continue = await self._should_continue_research()
+                if not should_continue:
+                    logger.info("LLM decided to end research early - sufficient information gathered")
+                    break
 
     async def run(self, research_topic: str, min_sources: Optional[int] = None):
         """

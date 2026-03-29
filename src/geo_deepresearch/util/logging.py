@@ -13,7 +13,7 @@ def setup_logging(app_name=default_logger_name):
         level_str = "INFO"
     
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         force=True
     )

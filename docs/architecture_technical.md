@@ -9,7 +9,7 @@ Geo DeepResearch is a multi-agent deep research system that decomposes complex q
 ### High-Level System Architecture
 
 ```mermaid
-flowchart TB
+flowchart LR
     subgraph Client["Client Layer"]
         HTTPClient["HTTP Client"]
     end
@@ -31,7 +31,7 @@ flowchart TB
         GeneralAgent["GeneralAgentRunner"]
     end
 
-    subgraph Managers["Manager Layer<br/>(Concurrency)"]
+    subgraph Managers["Manager Layer"]
         direction TB
         BrowseMgr["BrowseManager"]
         SearchMgr["WebSearchManager"]

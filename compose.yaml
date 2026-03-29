@@ -8,7 +8,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "8000:8000"
+      - "8001:8000"
     volumes:
       # Hot reload source code and tests
       - "./src:/app/src"
