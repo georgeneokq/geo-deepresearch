@@ -101,6 +101,32 @@ Use the following citation format:
 - Internal document citations (items with UUID as key): "1. Internal docs - <file name>.pdf"
 - Website citations (items with URL as key): "2. <full URL>"
 
+---
+
+Example 1 - Web source:
+{{
+    "http://cloud.google.com": "Webpage summary here..."
+}}
+
+References:
+1. https://cloud.google.com
+
+---
+
+Example 2 - Internal docs:
+{{
+    "e91604e9-6ab0-51be-8f59-6fd2fe6903f5": {{
+        "file_name": "The history of APT33",
+        "summary": "Document summary here..."
+    }}
+}}
+
+References:
+1. https://cloud.google.com
+2. Internal docs - The history of APT33
+
+---
+
 {GROUNDING_INSTRUCTION}
 
 ---
@@ -114,7 +140,7 @@ IOCs found:
 - APT42 uses NICECURL backdoor [3]
 
 References:
-1. https://cloud.google.com/blog/topics/...
+1. https://cloud.google.com
 2. https://www.citation2.com
 3. Internal docs - APT42's recent activity.pdf
 --- End of example ---
