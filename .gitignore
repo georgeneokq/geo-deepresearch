@@ -21,3 +21,6 @@ models/
 
 # qdrant
 qdrant_storage/
+
+# CI/CD artifacts
+semgrep-results.json

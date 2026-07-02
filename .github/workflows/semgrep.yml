@@ -17,10 +17,15 @@ jobs:
           python-version: '3.13'
       
       - name: Install semgrep
-        run: pip install semgrep
+        run: pip install semgrep==1.168.0
       
       - name: Run semgrep
         run: |
           semgrep scan \
           --config semgrep-rules \
-          --error
+          --json \
+          --output semgrep-results.json \
+          src
+      
+      - name: Run Policy Script
+        run: python scripts/semgrep_policy.py semgrep-results.json
