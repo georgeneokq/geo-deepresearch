@@ -17,29 +17,29 @@ services:
       # Load tokenizer
       - "./tokenizer:/app/tokenizer"
 
-  # docling-serve:
-  #   image: ghcr.io/docling-project/docling-serve-cu126:main
-  #   container_name: docling-serve
-  #   restart: unless-stopped
-  #   ports:
-  #     - "5001:5001"
-  #   environment:
-  #     DOCLING_SERVE_ENABLE_UI: "true"
-  #     NVIDIA_VISIBLE_DEVICES: "all"
-  #   healthcheck:
-  #     test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3
-  #     start_period: 40s
-  #   deploy:
-  #     resources:
-  #       reservations:
-  #         devices:
-  #           - driver: nvidia
-  #             count: all
-  #             capabilities: [gpu]
-  #   runtime: nvidia
+  docling-serve:
+    image: ghcr.io/docling-project/docling-serve-cu126:main
+    container_name: docling-serve
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      DOCLING_SERVE_ENABLE_UI: "true"
+      NVIDIA_VISIBLE_DEVICES: "all"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    runtime: nvidia
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -54,27 +54,27 @@ services:
       # - QDRANT__SERVICE__API_KEY=your_secret_key_here
       - QDRANT__LOGGER__LEVEL=INFO
 
-  # qdrant_cron:
-  #   build:
-  #     context: ./qdrant_cron
-  #     dockerfile: dev.Dockerfile
-  #   restart: unless-stopped
-  #   env_file:
-  #     - qdrant_cron/.env
-  #   extra_hosts:
-  #     - "host.docker.internal:host-gateway"
-  #   volumes:
-  #     # Hot reload source code and tests
-  #     - "./qdrant_cron/src:/app/src"
-  #     # For document ingestion
-  #     - "./qdrant_cron/ingest_docs:/app/ingest_docs:ro"
-  #     # Cache processed documents for retrieving surrounding text
-  #     - "./qdrant_cron/processed_docs:/app/processed_docs"
-  #     # Models cache dir      
-  #     - "./models:/app/models"
-  #   depends_on:
-  #     docling-serve:
-  #       condition: service_healthy
+  qdrant_cron:
+    build:
+      context: ./qdrant_cron
+      dockerfile: dev.Dockerfile
+    restart: unless-stopped
+    env_file:
+      - qdrant_cron/.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Hot reload source code and tests
+      - "./qdrant_cron/src:/app/src"
+      # For document ingestion
+      - "./qdrant_cron/ingest_docs:/app/ingest_docs:ro"
+      # Cache processed documents for retrieving surrounding text
+      - "./qdrant_cron/processed_docs:/app/processed_docs"
+      # Models cache dir      
+      - "./models:/app/models"
+    depends_on:
+      docling-serve:
+        condition: service_healthy
 
   qdrant_api_server:
     build:
