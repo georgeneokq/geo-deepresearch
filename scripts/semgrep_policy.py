@@ -13,7 +13,7 @@ def format_github_annotation(finding: dict, level: str):
         f'::{LEVELS[level]} '
         f'file={finding["path"]},'
         f'line={finding["start"]["line"]},col={finding["start"]["col"]}'
-        f'::{finding["check_id"]}\n{finding["extra"]["message"]}'
+        f'::{finding["check_id"]} ({finding["path"]}:{finding["start"]["line"]}): {finding["extra"]["message"]}'
     )
 
 if __name__ == '__main__':
